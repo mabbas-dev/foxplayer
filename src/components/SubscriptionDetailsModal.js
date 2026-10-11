@@ -315,7 +315,7 @@ export default function SubscriptionDetailsModal({ visible, onClose }) {
   const formattedActivationDate = useMemo(() => {
     if (!subscription?.starts_at) return 'N/A';
     return formatAppExpiryDate(subscription.starts_at, true);
-  }, [subscription?.starts_at]);
+  }, [subscription]);
 
   const planName = useMemo(() => {
     if (subscriptionType === 'trial') return 'Fox Player 7-Day Free Trial';
@@ -341,7 +341,7 @@ export default function SubscriptionDetailsModal({ visible, onClose }) {
     if (lastValidatedAt) return formatAppExpiryDate(lastValidatedAt, true);
     if (subscription?.server_time) return formatAppExpiryDate(subscription.server_time, true);
     return 'Authoritative Server Clock';
-  }, [lastValidatedAt, subscription?.server_time]);
+  }, [lastValidatedAt, subscription]);
 
   if (!isRendered) return null;
 
