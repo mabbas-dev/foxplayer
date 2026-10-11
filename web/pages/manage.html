@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="description" content="Fox Player Device Playlist Management Dashboard — Manage and synchronize playlists for your devices." />
+  <title>Fox Player — Device Management</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #080A0F;
+      --bg2:          #0D1117;
+      --bg3:          #131820;
+      --card:         #161C26;
+      --card2:        #1A2230;
+      --card-hover:   #20293A;
+      --brand:        #E8321A;
+      --brand-hover:  #FF472B;
+      --brand-glow:   rgba(232, 50, 26, 0.25);
+      --text:         #F0F2F5;
+      --text2:        #9BA3B2;
+      --text3:        #5C6370;
+      --border:       rgba(255, 255, 255, 0.08);
+      --border2:      rgba(255, 255, 255, 0.16);
+      --border-brand: rgba(232, 50, 26, 0.4);
+      --error:        #EF4444;
+      --error-bg:     rgba(239, 68, 68, 0.12);
+      --success:      #22C55E;
+      --success-bg:   rgba(34, 197, 94, 0.12);
+      --warning:      #F59E0B;
+      --info:         #3B82F6;
+      --info-bg:      rgba(59, 130, 246, 0.12);
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* Top Navigation Bar */
+    .navbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(8px);
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .nav-logo {
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--brand);
+      letter-spacing: 4px;
+    }
+    .nav-logo-sub {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text3);
+      letter-spacing: 2px;
+      background: rgba(255,255,255,0.05);
+      padding: 3px 6px;
+      border-radius: 4px;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .nav-link {
+      color: var(--text2);
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .nav-link:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.06);
+    }
+    .nav-link.active {
+      color: #fff;
+      background: var(--brand);
+    }
+    .auth-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+    }
+    .auth-badge.unlocked {
+      border-color: rgba(34, 197, 94, 0.4);
+      background: var(--success-bg);
+      color: var(--success);
+    }
+    .auth-badge.locked {
+      color: var(--text3);
+    }
+    .auth-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text3);
+    }
+    .auth-badge.unlocked .auth-dot {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+    .auth-action-btn {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font-weight: 700;
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0 2px;
+    }
+
+    /* Container */
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 36px 20px 80px;
+    }
+
+    /* Page Header */
+    .page-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .page-title {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .page-subtitle {
+      font-size: 15px;
+      color: var(--text2);
+      max-width: 540px;
+      margin: 0 auto;
+    }
+
+    /* Search Card */
+    .search-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }
+    .search-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--text3);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .search-row {
+      display: flex;
+      gap: 12px;
+    }
+    .search-input {
+      flex: 1;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      color: var(--brand);
+      font-size: 22px;
+      font-weight: 800;
+      font-family: 'Courier New', Courier, monospace;
+      letter-spacing: 5px;
+      padding: 12px 18px;
+      outline: none;
+      text-transform: uppercase;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px var(--brand-glow);
+    }
+    .search-input::placeholder {
+      color: var(--text3);
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 28px;
+      background: var(--brand);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .btn-primary:hover {
+      background: var(--brand-hover);
+      transform: translateY(-1px);
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 18px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.3);
+    }
+    .btn-danger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      color: var(--error);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-danger:hover {
+      background: var(--error);
+      color: #fff;
+    }
+    .search-hint {
+      font-size: 12px;
+      color: var(--text3);
+      margin-top: 10px;
+    }
+
+    /* Device Dashboard Section */
+    #dashboard-view {
+      display: none;
+      animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Device Card Info */
+    .device-banner {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px 26px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .device-info-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .device-icon-box {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(232, 50, 26, 0.12);
+      border: 1px solid var(--border-brand);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand);
+    }
+    .device-meta-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text3);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .device-meta-id {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--brand);
+      letter-spacing: 4px;
+    }
+    .device-stats {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .stat-item {
+      text-align: right;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--text3);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .stat-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .device-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Dashboard Actions Header */
+    .dashboard-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .dashboard-toolbar-title {
+      font-size: 18px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .playlist-count-pill {
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--bg3);
+      color: var(--text2);
+      padding: 2px 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    /* Playlists Grid / Cards */
+    .playlists-container {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .playlist-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      transition: all 0.2s;
+    }
+    .playlist-card:hover {
+      background: var(--card-hover);
+      border-color: var(--border2);
+    }
+    .playlist-card.active-card {
+      border-color: rgba(34, 197, 94, 0.4);
+      background: linear-gradient(90deg, rgba(34, 197, 94, 0.04) 0%, var(--card) 100%);
+    }
+    .playlist-main {
+      flex: 1;
+      min-width: 0;
+    }
+    .playlist-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .playlist-name {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .badge-type {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+    }
+    .badge-type.xtream {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #60A5FA;
+    }
+    .badge-type.m3u {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #FBBF24;
+    }
+    .badge-active {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      color: var(--success);
+    }
+    .active-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+    }
+    .playlist-details {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--text2);
+    }
+    .detail-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .server-host {
+      font-family: 'Courier New', Courier, monospace;
+      color: var(--text);
+      background: var(--bg3);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .playlist-card-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    /* Empty state */
+    .empty-state {
+      background: var(--card);
+      border: 1px dashed var(--border2);
+      border-radius: 14px;
+      padding: 48px 24px;
+      text-align: center;
+      margin: 12px 0;
+    }
+    .empty-icon {
+      font-size: 40px;
+      color: var(--text3);
+      margin-bottom: 12px;
+    }
+    .empty-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .empty-subtitle {
+      font-size: 14px;
+      color: var(--text2);
+      max-width: 380px;
+      margin: 0 auto 20px;
+    }
+
+    /* Modals */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(5px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.open {
+      display: flex;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .modal-card {
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+      overflow: hidden;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .modal-close-btn {
+      background: transparent;
+      border: none;
+      color: var(--text3);
+      font-size: 20px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 4px;
+    }
+    .modal-close-btn:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.06);
+    }
+    .modal-body {
+      padding: 24px;
+    }
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--bg2);
+    }
+
+    /* Tabs inside Add Playlist Modal */
+    .modal-tabs {
+      display: flex;
+      background: var(--bg2);
+      border-radius: 10px;
+      padding: 4px;
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+    .modal-tab {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text2);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .modal-tab.active {
+      background: var(--brand);
+      color: #fff;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text3);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .form-input {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-input:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 2px var(--brand-glow);
+    }
+    .form-hint {
+      font-size: 11px;
+      color: var(--text3);
+      margin-top: 4px;
+    }
+
+    /* Remove Confirmation Modal */
+    .confirm-box {
+      text-align: center;
+      padding: 10px 0;
+    }
+    .confirm-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: var(--error);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin: 0 auto 16px;
+    }
+    .confirm-title {
+      font-size: 18px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .confirm-desc {
+      font-size: 14px;
+      color: var(--text2);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .confirm-highlight {
+      font-weight: 700;
+      color: var(--text);
+      background: var(--bg3);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Toast Container */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 200;
+      pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      min-width: 280px;
+      max-width: 420px;
+      padding: 14px 18px;
+      border-radius: 10px;
+      background: var(--card2);
+      border: 1px solid var(--border2);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      animation: slideIn 0.25s ease-out;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to   { transform: translateX(0); opacity: 1; }
+    }
+    .toast.success {
+      border-color: rgba(34, 197, 94, 0.5);
+      color: #86EFAC;
+    }
+    .toast.error {
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #FCA5A5;
+    }
+    .toast.info {
+      border-color: rgba(59, 130, 246, 0.5);
+      color: #93C5FD;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Inline Alert Box */
+    .alert-box {
+      display: none;
+      padding: 14px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+    .alert-box.error {
+      display: block;
+      background: var(--error-bg);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: var(--error);
+    }
+    .alert-box.success {
+      display: block;
+      background: var(--success-bg);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      color: var(--success);
+    }
+
+    @media (max-width: 640px) {
+      .navbar { padding: 12px 16px; }
+      .container { padding: 20px 12px 60px; }
+      .search-row { flex-direction: column; }
+      .search-input { font-size: 18px; letter-spacing: 3px; }
+      .device-banner { flex-direction: column; align-items: flex-start; }
+      .device-stats { width: 100%; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 12px; }
+      .playlist-card { flex-direction: column; align-items: flex-start; }
+      .playlist-card-actions { width: 100%; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <a class="nav-brand" href="/manage">
+      <span class="nav-logo">FOX</span>
+      <span class="nav-logo-sub">MANAGEMENT</span>
+    </a>
+    <div class="nav-links">
+      <a href="/add-device" class="nav-link">Connect Device</a>
+      <a href="/manage" class="nav-link active">Manage Playlists</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="page-header">
+      <h1 class="page-title">Device Management</h1>
+      <p class="page-subtitle">Lookup any Fox Player device by its Device ID to view, add, or remove IPTV playlists with real-time TV synchronization.</p>
+    </div>
+
+    <!-- Alert Box -->
+    <div id="global-alert" class="alert-box"></div>
+
+    <!-- Device Search Card -->
+    <section class="search-card" aria-label="Device ID Search">
+      <label for="device-id-input" class="search-label">Device ID</label>
+      <div class="search-row">
+        <input
+          type="text"
+          id="device-id-input"
+          class="search-input"
+          maxlength="8"
+          placeholder="e.g. 1PFDES0P"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          onkeydown="if(event.key === 'Enter') findDevice()"
+        />
+        <button type="button" id="find-device-btn" class="btn-primary" onclick="findDevice()">
+          <span id="find-btn-text">Find Device</span>
+        </button>
+      </div>
+      <div class="search-hint">Enter the 8-character uppercase Device ID displayed on your FOX PLAYER screen or pairing portal.</div>
+    </section>
+
+    <!-- Device Dashboard View -->
+    <section id="dashboard-view" aria-label="Device Playlist Dashboard">
+      <!-- Device Banner Info -->
+      <div class="device-banner">
+        <div class="device-info-left">
+          <div class="device-icon-box">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect>
+              <polyline points="17 2 12 7 7 2"></polyline>
+            </svg>
+          </div>
+          <div>
+            <div class="device-meta-title">Registered Device</div>
+            <div class="device-meta-id" id="dash-device-id">--------</div>
+          </div>
+        </div>
+
+        <div class="device-stats">
+          <div class="stat-item">
+            <div class="stat-label">Playlists</div>
+            <div class="stat-value" id="dash-playlist-count">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Status</div>
+            <div class="stat-value" id="dash-device-status" style="color: var(--success);">Active</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">ID Lock</div>
+            <div class="stat-value" id="dash-lock-status">Unlocked</div>
+          </div>
+        </div>
+
+        <div class="device-actions">
+          <button type="button" class="btn-secondary" onclick="reloadCurrentDevice()" title="Refresh Playlists">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            Refresh
+          </button>
+          <button type="button" id="dash-add-btn" class="btn-primary" onclick="openAddPlaylistModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Playlist
+          </button>
+        </div>
+      </div>
+
+      <!-- Lock Warning Banner -->
+      <div id="dash-lock-banner" class="alert-box" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: var(--text); margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 20px;">🔒</span>
+          <div>
+            <strong>Playlist management is locked for this device.</strong>
+            <div style="font-size: 12px; color: var(--text2); margin-top: 2px;">
+              To add or remove playlists, please disable ID Lock in FOX PLAYER Settings on your device.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Playlists Section -->
+      <div class="dashboard-toolbar">
+        <h2 class="dashboard-toolbar-title">
+          <span>Configured Playlists</span>
+          <span class="playlist-count-pill" id="dash-pill-count">0</span>
+        </h2>
+      </div>
+
+      <div id="playlists-list" class="playlists-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </section>
+  </main>
+
+  <!-- ADD PLAYLIST MODAL -->
+  <div id="add-playlist-modal" class="modal-overlay" onclick="handleOverlayClick(event, 'add-playlist-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Add Playlist to Device</h3>
+        <button type="button" class="modal-close-btn" onclick="closeModal('add-playlist-modal')">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-tabs">
+          <button type="button" class="modal-tab active" id="modal-tab-xtream" onclick="switchModalTab('xtream')">XTREAM CODES</button>
+          <button type="button" class="modal-tab" id="modal-tab-m3u" onclick="switchModalTab('m3u')">M3U PLAYLIST</button>
+        </div>
+
+        <form id="add-playlist-form" onsubmit="submitAddPlaylist(event)" novalidate>
+          <div class="form-group">
+            <label for="form-playlist-name" class="form-label">Playlist Name</label>
+            <input type="text" id="form-playlist-name" class="form-input" placeholder="e.g. My Primary IPTV" autocomplete="off" />
+            <div class="form-hint">A friendly display name for your TV playlist selector.</div>
+          </div>
+
+          <!-- Xtream Codes Panel -->
+          <div id="modal-panel-xtream">
+            <div class="form-group">
+              <label for="form-server-url" class="form-label">Server URL *</label>
+              <input type="url" id="form-server-url" class="form-input" placeholder="http://server.example.com:8080" autocomplete="off" spellcheck="false" />
+              <div class="form-hint">Base server address including port (e.g. http://xtream.tv:8080)</div>
+            </div>
+            <div class="form-group">
+              <label for="form-username" class="form-label">Username *</label>
+              <input type="text" id="form-username" class="form-input" placeholder="Your Xtream username" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="form-group">
+              <label for="form-password" class="form-label">Password *</label>
+              <input type="password" id="form-password" class="form-input" placeholder="Your Xtream password" autocomplete="new-password" />
+            </div>
+          </div>
+
+          <!-- M3U Panel -->
+          <div id="modal-panel-m3u" style="display: none;">
+            <div class="form-group">
+              <label for="form-m3u-url" class="form-label">M3U Playlist URL *</label>
+              <input type="url" id="form-m3u-url" class="form-input" placeholder="http://provider.com/get.php?username=...&type=m3u_plus" autocomplete="off" spellcheck="false" />
+              <div class="form-hint">Direct link to your M3U or M3U8 playlist file.</div>
+            </div>
+          </div>
+
+          <div class="modal-footer" style="margin: 20px -24px -24px; padding: 16px 24px;">
+            <button type="button" class="btn-secondary" onclick="closeModal('add-playlist-modal')">Cancel</button>
+            <button type="submit" id="add-playlist-submit-btn" class="btn-primary">
+              <span id="add-submit-text">Add Playlist</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- REMOVE PLAYLIST CONFIRMATION MODAL -->
+  <div id="remove-playlist-modal" class="modal-overlay" onclick="handleOverlayClick(event, 'remove-playlist-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Remove Playlist</h3>
+        <button type="button" class="modal-close-btn" onclick="closeModal('remove-playlist-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="confirm-box">
+          <div class="confirm-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </div>
+          <div class="confirm-title">Remove this playlist?</div>
+          <div class="confirm-desc">
+            Are you sure you want to remove <span class="confirm-highlight" id="remove-playlist-name-display">Playlist</span> from device <span class="confirm-highlight" id="remove-device-id-display">--------</span>?
+          </div>
+          <div class="form-hint" style="color: var(--text3); line-height: 1.5;">
+            This will dissociate the playlist from this device only. If this playlist is currently active on the device, Fox Player will automatically switch to a remaining playlist.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeModal('remove-playlist-modal')">Cancel</button>
+        <button type="button" id="confirm-remove-btn" class="btn-danger" onclick="executeRemovePlaylist()">
+          <span id="remove-btn-text">Remove Playlist</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script>
+    // --- State ---
+    let currentDeviceId = null;
+    let currentPlaylists = [];
+    let currentModalTab = 'xtream';
+    let pendingRemovePlaylistId = null;
+    let isSubmitting = false;
+    let currentIdLock = false;
+
+    // --- Helpers ---
+    function $(id) { return document.getElementById(id); }
+
+    function getSessionToken(deviceId) {
+      if (!deviceId) return '';
+      return sessionStorage.getItem('fox_session_' + deviceId) || '';
+    }
+
+    function setSessionToken(deviceId, token) {
+      if (!deviceId) return;
+      if (token) {
+        sessionStorage.setItem('fox_session_' + deviceId, token);
+      } else {
+        sessionStorage.removeItem('fox_session_' + deviceId);
+      }
+    }
+
+    function isAuthorized(deviceId = currentDeviceId) {
+      return Boolean(getSessionToken(deviceId));
+    }
+
+    async function ensureSession(deviceId) {
+      let tok = getSessionToken(deviceId);
+      if (tok) return tok;
+      try {
+        const res = await fetch(`/api/device/${encodeURIComponent(deviceId)}/session`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.session_token) {
+          setSessionToken(deviceId, data.session_token);
+          return data.session_token;
+        }
+      } catch (_e) {}
+      return '';
+    }
+
+    function showToast(message, type = 'info') {
+      const container = $('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        toast.style.transition = 'all 0.3s';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    function showAlert(msg, type = 'error') {
+      const box = $('global-alert');
+      if (!box) return;
+      box.className = `alert-box ${type}`;
+      box.textContent = msg;
+      box.style.display = 'block';
+    }
+
+    function hideAlert() {
+      const box = $('global-alert');
+      if (!box) return;
+      box.className = 'alert-box';
+      box.style.display = 'none';
+      box.textContent = '';
+    }
+
+    function openModal(id) {
+      const el = $(id);
+      if (el) el.classList.add('open');
+    }
+
+    function closeModal(id) {
+      const el = $(id);
+      if (el) el.classList.remove('open');
+    }
+
+    function handleOverlayClick(e, id) {
+      if (e.target.id === id) closeModal(id);
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeModal('add-playlist-modal');
+        closeModal('remove-playlist-modal');
+      }
+    });
+
+    // --- Modal Tabs ---
+    function switchModalTab(tab) {
+      currentModalTab = tab;
+      const isXtream = tab === 'xtream';
+      $('modal-tab-xtream').className = `modal-tab ${isXtream ? 'active' : ''}`;
+      $('modal-tab-m3u').className = `modal-tab ${!isXtream ? 'active' : ''}`;
+      $('modal-panel-xtream').style.display = isXtream ? 'block' : 'none';
+      $('modal-panel-m3u').style.display = !isXtream ? 'block' : 'none';
+    }
+
+    // --- Device Lookup ---
+    async function findDevice(customId = null) {
+      hideAlert();
+      const input = $('device-id-input');
+      const raw = (customId || input.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+
+      if (raw.length !== 8) {
+        showAlert('Please enter a valid 8-character uppercase Device ID.');
+        if (input) input.focus();
+        return;
+      }
+
+      const btn = $('find-device-btn');
+      const btnText = $('find-btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="spinner"></span> Searching...';
+
+      try {
+        const res = await fetch(`/api/device/${encodeURIComponent(raw)}/playlists`);
+        const data = await res.json();
+
+        if (res.status === 404 || !data.success) {
+          $('dashboard-view').style.display = 'none';
+          const errMsg = data?.error?.code === 'DEVICE_NOT_FOUND'
+            ? `Device "${raw}" was not found. Please launch the Fox Player application to register this device.`
+            : (data?.error?.message || 'Failed to retrieve device information.');
+          showAlert(errMsg, 'error');
+          return;
+        }
+
+        // Success
+        currentDeviceId = raw;
+        if (data.session_token) {
+          setSessionToken(raw, data.session_token);
+        } else {
+          ensureSession(raw);
+        }
+        currentPlaylists = Array.isArray(data.playlists) ? data.playlists : [];
+        currentIdLock = Boolean(data.id_lock ?? data.device?.id_lock);
+
+        // Update URL query state without full reload
+        const newUrl = new URL(window.location);
+        newUrl.searchParams.set('device_id', raw);
+        window.history.replaceState({}, '', newUrl);
+
+        renderDashboard(data);
+      } catch (err) {
+        showAlert('Network error: Unable to reach the server. Please check your connection and try again.', 'error');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Find Device';
+      }
+    }
+
+    function reloadCurrentDevice() {
+      if (currentDeviceId) {
+        findDevice(currentDeviceId);
+      }
+    }
+
+    function renderDashboard(data) {
+      $('dash-device-id').textContent = currentDeviceId;
+      $('dash-playlist-count').textContent = currentPlaylists.length;
+      $('dash-pill-count').textContent = currentPlaylists.length;
+      $('dash-device-status').textContent = data?.device?.status || 'Active';
+
+      const lockStatusEl = $('dash-lock-status');
+      if (lockStatusEl) {
+        lockStatusEl.textContent = currentIdLock ? 'Locked' : 'Unlocked';
+        lockStatusEl.style.color = currentIdLock ? 'var(--error)' : 'var(--success)';
+      }
+
+      const lockBanner = $('dash-lock-banner');
+      if (lockBanner) {
+        lockBanner.style.display = currentIdLock ? 'block' : 'none';
+      }
+
+      const addBtn = $('dash-add-btn');
+      if (addBtn) {
+        if (currentIdLock) {
+          addBtn.disabled = true;
+          addBtn.style.opacity = '0.5';
+          addBtn.style.cursor = 'not-allowed';
+          addBtn.title = 'Playlist management is locked for this device in Fox Player Settings';
+        } else {
+          addBtn.disabled = false;
+          addBtn.style.opacity = '1';
+          addBtn.style.cursor = 'pointer';
+          addBtn.title = 'Add a new playlist';
+        }
+      }
+
+      const container = $('playlists-list');
+      container.innerHTML = '';
+
+      if (currentPlaylists.length === 0) {
+        if (currentIdLock) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">&#128274;</div>
+              <div class="empty-title">No playlists found for this device</div>
+              <div class="empty-subtitle">Playlist management is locked for this device. Unlock ID Lock in Fox Player Settings on your device to add a playlist.</div>
+            </div>
+          `;
+        } else {
+          container.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">&#128250;</div>
+              <div class="empty-title">No playlists configured yet</div>
+              <div class="empty-subtitle">Add your first Xtream Codes credentials or M3U playlist to begin streaming on this Fox Player device.</div>
+              <button type="button" class="btn-primary" onclick="openAddPlaylistModal()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Add Your First Playlist
+              </button>
+            </div>
+          `;
+        }
+      } else {
+        currentPlaylists.forEach((pl) => {
+          const card = document.createElement('div');
+          card.className = `playlist-card ${pl.is_active ? 'active-card' : ''}`;
+
+          const typeClass = (pl.type || '').toLowerCase() === 'xtream' ? 'xtream' : 'm3u';
+          const typeLabel = (pl.type || '').toLowerCase() === 'xtream' ? 'XTREAM CODES' : 'M3U';
+          const safeHost = pl.server_hostname || 'Configured Server';
+
+          card.innerHTML = `
+            <div class="playlist-main">
+              <div class="playlist-title-row">
+                <span class="playlist-name">${escapeHtml(pl.name || 'My Playlist')}</span>
+                <span class="badge-type ${typeClass}">${typeLabel}</span>
+                ${pl.is_active ? '<span class="badge-active"><span class="active-dot"></span>ACTIVE</span>' : ''}
+              </div>
+              <div class="playlist-details">
+                <div class="detail-item">
+                  <span>Server:</span>
+                  <span class="server-host">${escapeHtml(safeHost)}</span>
+                </div>
+                ${pl.updated_at ? `<div class="detail-item"><span>Updated:</span> <span>${new Date(pl.updated_at).toLocaleDateString()}</span></div>` : ''}
+              </div>
+            </div>
+
+            <div class="playlist-card-actions">
+              ${!pl.is_active ? `
+                <button type="button" class="btn-secondary" onclick="setActivePlaylist('${pl.id}', '${escapeJs(pl.name)}')">
+                  Set Active
+                </button>
+              ` : ''}
+              ${currentIdLock ? `
+                <button type="button" class="btn-danger" disabled style="opacity: 0.4; cursor: not-allowed;" title="Playlist management is locked for this device in Settings">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                  Locked
+                </button>
+              ` : `
+                <button type="button" class="btn-danger" onclick="promptRemovePlaylist('${pl.id}', '${escapeJs(pl.name)}')">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                  Remove
+                </button>
+              `}
+            </div>
+          `;
+          container.appendChild(card);
+        });
+      }
+
+      $('dashboard-view').style.display = 'block';
+    }
+
+    // --- Add Playlist Flow ---
+    function openAddPlaylistModal() {
+      if (currentIdLock) {
+        showToast('Playlist management is locked for this device. Unlock ID Lock in Fox Player Settings.', 'error');
+        return;
+      }
+      $('add-playlist-form').reset();
+      switchModalTab('xtream');
+      openModal('add-playlist-modal');
+      setTimeout(() => $('form-playlist-name').focus(), 100);
+    }
+
+    async function submitAddPlaylist(e) {
+      e.preventDefault();
+      if (isSubmitting) return;
+
+      if (currentIdLock) {
+        showToast('Playlist management is locked for this device. Please unlock ID Lock in Settings.', 'error');
+        return;
+      }
+
+      const name = ($('form-playlist-name').value || '').trim();
+      const type = currentModalTab;
+      let payload = {
+        type,
+        playlist_name: name || (type === 'xtream' ? 'Xtream Playlist' : 'M3U Playlist'),
+      };
+
+      if (type === 'm3u') {
+        const url = ($('form-m3u-url').value || '').trim();
+        if (!url) {
+          showToast('Please enter an M3U playlist URL.', 'error');
+          $('form-m3u-url').focus();
+          return;
+        }
+        try {
+          const parsed = new URL(url);
+          if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+        } catch {
+          showToast('Please enter a valid HTTP or HTTPS playlist URL.', 'error');
+          $('form-m3u-url').focus();
+          return;
+        }
+        payload.playlist_url = url;
+      } else {
+        const srv = ($('form-server-url').value || '').trim();
+        const usr = ($('form-username').value || '').trim();
+        const pwd = ($('form-password').value || '').trim();
+
+        if (!srv) {
+          showToast('Please enter your Xtream server URL.', 'error');
+          $('form-server-url').focus();
+          return;
+        }
+        try {
+          const parsed = new URL(srv);
+          if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+        } catch {
+          showToast('Please enter a valid server URL (e.g. http://server.com:8080).', 'error');
+          $('form-server-url').focus();
+          return;
+        }
+        if (!usr) {
+          showToast('Please enter your username.', 'error');
+          $('form-username').focus();
+          return;
+        }
+        if (!pwd) {
+          showToast('Please enter your password.', 'error');
+          $('form-password').focus();
+          return;
+        }
+        payload.server_url = srv;
+        payload.username = usr;
+        payload.password = pwd;
+      }
+
+      isSubmitting = true;
+      const btn = $('add-playlist-submit-btn');
+      const btnText = $('add-submit-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="spinner"></span> Saving...';
+
+      try {
+        const sessionToken = await ensureSession(currentDeviceId);
+        const res = await fetch(`/api/device/${encodeURIComponent(currentDeviceId)}/playlists`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-token': sessionToken,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        if (res.status === 403 && data?.error?.code === 'DEVICE_LOCKED') {
+          showToast('Playlist management is locked for this device. Please unlock ID Lock in Settings.', 'error');
+          currentIdLock = true;
+          await reloadCurrentDevice();
+          return;
+        }
+
+        if (res.status === 401) {
+          showToast('Unauthorized device management session.', 'error');
+          return;
+        }
+
+        if (!res.ok || !data.success) {
+          showToast(data?.error?.message || 'Failed to save playlist.', 'error');
+          return;
+        }
+
+        closeModal('add-playlist-modal');
+        showToast('Playlist added successfully and synchronized with Fox Player!', 'success');
+        await reloadCurrentDevice();
+      } catch (err) {
+        showToast('Network error: Unable to save playlist.', 'error');
+      } finally {
+        isSubmitting = false;
+        btn.disabled = false;
+        btnText.textContent = 'Add Playlist';
+      }
+    }
+
+    // --- Switch Active Playlist ---
+    async function setActivePlaylist(playlistId, playlistName) {
+      try {
+        const sessionToken = await ensureSession(currentDeviceId);
+        const res = await fetch(`/api/device/${encodeURIComponent(currentDeviceId)}/active-playlist`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-token': sessionToken,
+          },
+          body: JSON.stringify({ playlist_id: playlistId }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          showToast(data?.error?.message || 'Failed to switch active playlist.', 'error');
+          return;
+        }
+
+        showToast(`"${playlistName}" is now the active playlist.`, 'success');
+        await reloadCurrentDevice();
+      } catch (err) {
+        showToast('Network error: Unable to switch active playlist.', 'error');
+      }
+    }
+
+    // --- Remove Playlist Flow ---
+    function promptRemovePlaylist(playlistId, playlistName) {
+      if (currentIdLock) {
+        showToast('Playlist management is locked for this device. Unlock ID Lock in Fox Player Settings.', 'error');
+        return;
+      }
+
+      pendingRemovePlaylistId = playlistId;
+      $('remove-playlist-name-display').textContent = `"${playlistName}"`;
+      $('remove-device-id-display').textContent = currentDeviceId;
+      openModal('remove-playlist-modal');
+    }
+
+    async function executeRemovePlaylist() {
+      if (!pendingRemovePlaylistId || isSubmitting) return;
+
+      if (currentIdLock) {
+        showToast('Playlist management is locked for this device.', 'error');
+        closeModal('remove-playlist-modal');
+        return;
+      }
+
+      isSubmitting = true;
+      const btn = $('confirm-remove-btn');
+      const btnText = $('remove-btn-text');
+      btn.disabled = true;
+      btnText.innerHTML = '<span class="spinner"></span> Removing...';
+
+      try {
+        const sessionToken = await ensureSession(currentDeviceId);
+        const res = await fetch(`/api/device/${encodeURIComponent(currentDeviceId)}/playlist/${encodeURIComponent(pendingRemovePlaylistId)}`, {
+          method: 'DELETE',
+          headers: {
+            'x-session-token': sessionToken,
+          },
+        });
+
+        const data = await res.json();
+        if (res.status === 403 && data?.error?.code === 'DEVICE_LOCKED') {
+          showToast('Playlist management is locked for this device. Please unlock ID Lock in Settings.', 'error');
+          closeModal('remove-playlist-modal');
+          currentIdLock = true;
+          await reloadCurrentDevice();
+          return;
+        }
+
+        if (!res.ok || !data.success) {
+          showToast(data?.error?.message || 'Failed to remove playlist.', 'error');
+          return;
+        }
+
+        closeModal('remove-playlist-modal');
+        showToast('Playlist removed successfully.', 'success');
+        pendingRemovePlaylistId = null;
+        await reloadCurrentDevice();
+      } catch (err) {
+        showToast('Network error: Unable to remove playlist.', 'error');
+      } finally {
+        isSubmitting = false;
+        btn.disabled = false;
+        btnText.textContent = 'Remove Playlist';
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeJs(str) {
+      if (!str) return '';
+      return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    // --- On Page Load ---
+    window.addEventListener('DOMContentLoaded', async () => {
+      // Check URL parameters for prefilled device_id and pairing token
+      const params = new URLSearchParams(window.location.search);
+      const urlDevId = (params.get('device_id') || params.get('device-id') || params.get('deviceId') || '').toUpperCase().trim();
+      const urlToken = params.get('token') || params.get('pairing_token');
+
+      if (urlDevId) {
+        $('device-id-input').value = urlDevId;
+
+        // If URL includes pairing token, auto-pair with backend seamlessly
+        if (urlToken) {
+          try {
+            const pairRes = await fetch('/api/auth/pair', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ device_id: urlDevId, token: urlToken }),
+            });
+            const pairData = await pairRes.json();
+            if (pairRes.ok && pairData.success && pairData.session_token) {
+              setSessionToken(urlDevId, pairData.session_token);
+              if (typeof pairData.id_lock === 'boolean') {
+                currentIdLock = pairData.id_lock;
+              }
+            }
+          } catch (_e) {
+            console.warn('[Manage] Auto-pairing exchange error');
+          }
+        }
+
+        findDevice(urlDevId);
+      } else {
+        $('device-id-input').focus();
+      }
+    });
+  </script>
+</body>
+</html>
+
