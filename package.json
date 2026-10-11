@@ -56,10 +56,6 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "server": "node server/index.js",
-    "server:dev": "nodemon server/index.js",
-    "test": "node tests/runAllTests.js",
-    "test:subscription": "node tests/testDeviceSubscriptionAndTrialSystem.js",
     "lint": "expo lint"
   },
   "jest": {

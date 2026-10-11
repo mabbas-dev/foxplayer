@@ -31,10 +31,6 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
           Wipe Playlist
         </button>
-        <button class="tab-btn" onclick="switchTab('lock')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          Lock MAC
-        </button>
       </div>
 
       <!-- Tab 1: Upload Playlist Form -->
@@ -137,27 +133,6 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
 
         <button class="btn btn-danger btn-block" onclick="handleWipeAll()">Delete All Playlist Links</button>
       </div>
-
-      <!-- Tab 4: Lock MAC Address -->
-      <div id="tab-lock" style="display: none;">
-        <div class="panel-header">
-          <h2 class="panel-title">Lock MAC Address</h2>
-          <p class="panel-desc">Prevent unauthorized changes or accidental resets of your playlist configurations.</p>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="lock-mac">Your MAC Address or Device ID</label>
-          <input type="text" id="lock-mac" class="form-input" placeholder="e.g. 00:1A:79:XX:XX:XX or FOXA1B2C" value="<?php echo $prefillId; ?>">
-        </div>
-
-        <div id="lock-status-box" style="margin-bottom: 20px; display: none;"></div>
-
-        <div style="display: flex; gap: 14px;">
-          <button class="btn btn-secondary" onclick="checkLockStatus()">Check Status</button>
-          <button class="btn btn-primary" id="btn-toggle-lock" onclick="toggleLock(true)">Lock Device</button>
-          <button class="btn btn-secondary" id="btn-unlock" onclick="toggleLock(false)">Unlock Device</button>
-        </div>
-      </div>
     </div>
   </div>
 </main>
@@ -169,7 +144,7 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
     });
     event.currentTarget.classList.add('active');
 
-    ['upload', 'manage', 'delete', 'lock'].forEach(t => {
+    ['upload', 'manage', 'delete'].forEach(t => {
       document.getElementById('tab-' + t).style.display = (t === tab) ? 'block' : 'none';
     });
   }
@@ -346,56 +321,6 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
         showToast(data.message || 'All playlists removed successfully.', 'success');
       } else {
         showToast(data.error?.message || 'Failed to wipe playlists.', 'error');
-      }
-    } catch (e) {
-      showToast('Network error: ' + e.message, 'error');
-    }
-  }
-
-  async function checkLockStatus() {
-    const mac = document.getElementById('lock-mac').value.trim();
-    if (!mac) {
-      showToast('Please enter your Device ID or MAC Address.', 'error');
-      return;
-    }
-    const box = document.getElementById('lock-status-box');
-    box.style.display = 'block';
-    box.innerHTML = 'Checking lock state...';
-
-    try {
-      const res = await fetch(`${window.API_BASE}/api/device/${encodeURIComponent(mac)}/id-lock`);
-      const data = await res.json();
-      if (data.success) {
-        box.innerHTML = data.id_lock ? 
-          '<div class="badge badge-warning" style="padding: 10px 16px; font-size: 14px;">DEVICE IS CURRENTLY LOCKED</div>' : 
-          '<div class="badge badge-success" style="padding: 10px 16px; font-size: 14px;">DEVICE IS UNLOCKED</div>';
-      } else {
-        box.innerHTML = `<span style="color: var(--error);">${data.error?.message || 'Error checking lock'}</span>`;
-      }
-    } catch (e) {
-      box.innerHTML = `<span style="color: var(--error);">${e.message}</span>`;
-    }
-  }
-
-  async function toggleLock(lockState) {
-    const mac = document.getElementById('lock-mac').value.trim();
-    if (!mac) {
-      showToast('Please enter your Device ID or MAC Address.', 'error');
-      return;
-    }
-
-    try {
-      const res = await fetch(`${window.API_BASE}/api/device/${encodeURIComponent(mac)}/id-lock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_lock: lockState ? 1 : 0 })
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast(lockState ? 'Device successfully locked.' : 'Device unlocked.', 'success');
-        checkLockStatus();
-      } else {
-        showToast(data.error?.message || 'Error updating lock state.', 'error');
       }
     } catch (e) {
       showToast('Network error: ' + e.message, 'error');

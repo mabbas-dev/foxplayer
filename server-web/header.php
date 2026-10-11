@@ -21,8 +21,7 @@ if (!isset($activeNav)) $activeNav = 'home';
     <div class="container">
       <div class="nav-wrap">
         <a href="/" class="brand-logo">
-          <img src="/assets/logo.png" alt="FOX PLAYER Logo">
-          <span>FOX <b>PLAYER</b></span>
+          <img src="/assets/logo.png" alt="FOX PLAYER">
         </a>
 
         <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle navigation">

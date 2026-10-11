@@ -1,10 +1,6 @@
-  <footer class="site-footer">
-    <div class="container">
-      <div class="footer-grid">
         <div class="footer-brand">
-          <a href="/" class="brand-logo" style="margin-bottom: 8px;">
-            <img src="/assets/logo.png" alt="FOX PLAYER Logo" style="height: 36px;">
-            <span>FOX <b>PLAYER</b></span>
+          <a href="/" class="brand-logo" style="margin-bottom: 12px; display: inline-block;">
+            <img src="/assets/logo.png" alt="FOX PLAYER" style="height: 48px; width: auto; object-fit: contain;">
           </a>
           <p style="font-size: 13px; color: var(--text-muted); max-width: 320px;">
             Pure media player application. No streams, channels, or audiovisual content are bundled or sold.

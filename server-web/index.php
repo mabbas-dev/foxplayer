@@ -151,10 +151,10 @@ require_once __DIR__ . '/header.php';
 
         <div class="feature-card">
           <div class="feature-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
           </div>
-          <h3 class="feature-title">Lock MAC Address</h3>
-          <p class="feature-desc">Protect your device and playlists from unauthorized changes or resets by enabling MAC Address lock.</p>
+          <h3 class="feature-title">Ultra-Fast Stream Engine</h3>
+          <p class="feature-desc">Native hardware acceleration for 4K & FHD video, custom buffer management, and zero stutter playback.</p>
         </div>
       </div>
 
@@ -253,11 +253,11 @@ require_once __DIR__ . '/header.php';
 
         <div class="faq-item">
           <div class="faq-question">
-            How does the Lock MAC Address feature work?
+            How many playlists can I connect to FOX PLAYER?
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
           <div class="faq-answer">
-            When you enable Lock MAC from your application or portal settings, no unauthorized person can overwrite or delete your playlist configurations, ensuring your private credentials remain protected.
+            You can connect multiple M3U links and Xtream Codes servers to your device. You can name each playlist, switch active lists seamlessly, or remove any playlist whenever you wish.
           </div>
         </div>
 

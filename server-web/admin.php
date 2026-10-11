@@ -7,14 +7,14 @@ require_once __DIR__ . '/header.php';
 <main class="section">
   <div class="container">
     <!-- Admin Login Screen (shown when not authenticated) -->
-    <div id="admin-login-wrap" style="max-width: 440px; margin: 40px auto;">
-      <div class="panel-card">
+    <div id="admin-login-wrap" style="max-width: 460px; margin: 40px auto;">
+      <div class="panel-card" style="box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); border: 1px solid rgba(249, 115, 22, 0.25);">
         <div class="panel-header" style="text-align: center;">
-          <div style="width: 56px; height: 56px; border-radius: var(--radius-md); background: rgba(249, 115, 22, 0.15); color: var(--brand-primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <div style="margin-bottom: 20px;">
+            <img src="/assets/logo.png" alt="FOX PLAYER Logo" style="height: 60px; max-width: 260px; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(249, 115, 22, 0.4));">
           </div>
-          <h1 class="panel-title">Administrator Portal</h1>
-          <p class="panel-desc">Enter your master administrator secret key to continue.</p>
+          <h1 class="panel-title" style="font-size: 22px;">Administrator Sign In</h1>
+          <p class="panel-desc">Master access to user licenses, trial settings, and playlists.</p>
         </div>
 
         <form id="login-form" onsubmit="handleAdminLogin(event)">
@@ -210,7 +210,7 @@ require_once __DIR__ . '/header.php';
 </main>
 
 <script>
-  let adminToken = sessionStorage.getItem('fox_admin_token') || 'fox_admin_2026';
+  let adminToken = sessionStorage.getItem('fox_admin_token') || '';
   let searchTimeout = null;
 
   // Initialize view
@@ -219,6 +219,9 @@ require_once __DIR__ . '/header.php';
       document.getElementById('admin-login-wrap').style.display = 'none';
       document.getElementById('admin-dashboard-wrap').style.display = 'block';
       loadDashboard();
+    } else {
+      document.getElementById('admin-login-wrap').style.display = 'block';
+      document.getElementById('admin-dashboard-wrap').style.display = 'none';
     }
   });
 
