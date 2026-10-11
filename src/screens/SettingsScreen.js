@@ -485,7 +485,7 @@ export default function SettingsScreen() {
           onRequestClose={() => setShowDiagnosticModal(false)}
         >
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalBox, { maxWidth: 640 }]}>
+            <View style={styles.modalBox}>
               <NativePlayerTestHarness />
               <TouchableOpacity
                 style={[styles.modalCancel, { marginTop: 12 }]}

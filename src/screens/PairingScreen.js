@@ -765,10 +765,10 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalCard: {
-    width: '100%',
-    maxWidth: 520,
+    width: '90%',
+    maxWidth: 380,
     maxHeight: '92%',
-    backgroundColor: '#131823',
+    backgroundColor: Colors.background.secondary,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.border.default,

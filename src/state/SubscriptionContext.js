@@ -44,14 +44,27 @@ export function SubscriptionProvider({ deviceId, installationId, initialSubscrip
   const hasInitializedRef = useRef(false);
   const disclaimerDismissedThisSessionRef = useRef(false);
 
+  const [prevInitialSub, setPrevInitialSub] = useState(initialSubscription);
+  if (initialSubscription && initialSubscription !== prevInitialSub) {
+    setPrevInitialSub(initialSubscription);
+    setSubscription(initialSubscription);
+  }
+
+  const isSubActive = useCallback((sub) => {
+    if (!sub) return false;
+    if (sub.is_valid !== undefined) return Boolean(sub.is_valid);
+    if (sub.is_active !== undefined) return Boolean(sub.is_active);
+    return sub.status === 'active';
+  }, []);
+
   // Compute fine-grained subscription status
   const subscriptionStatus = useMemo(() => {
     if (isLoading) return SUBSCRIPTION_STATUS.CHECKING;
     if (error && !subscription) return SUBSCRIPTION_STATUS.BACKEND_UNAVAILABLE;
 
     if (subscription) {
-      if (subscription.is_valid) {
-        if (subscription.subscription_type === 'trial') {
+      if (isSubActive(subscription)) {
+        if (subscription.subscription_type === 'trial' || subscription.type === 'trial') {
           return SUBSCRIPTION_STATUS.ACTIVE_TRIAL;
         }
         return SUBSCRIPTION_STATUS.ACTIVE_PAID;
@@ -64,11 +77,11 @@ export function SubscriptionProvider({ deviceId, installationId, initialSubscrip
     }
 
     return SUBSCRIPTION_STATUS.NO_SUBSCRIPTION;
-  }, [isLoading, error, subscription, isTrialEligible]);
+  }, [isLoading, error, subscription, isTrialEligible, isSubActive]);
 
   const isSubscriptionValid = useMemo(() => {
-    return Boolean(subscription?.is_valid);
-  }, [subscription]);
+    return isSubActive(subscription);
+  }, [subscription, isSubActive]);
 
   const appExpiresAt = useMemo(() => {
     return subscription?.expires_at || null;
@@ -118,16 +131,17 @@ export function SubscriptionProvider({ deviceId, installationId, initialSubscrip
         return null;
       }
 
-      if (res?.has_subscription && res.subscription) {
-        setSubscription(res.subscription);
+      const subData = res?.subscription || (res?.has_subscription || res?.is_active !== undefined ? res : null);
+      if (subData) {
+        setSubscription(subData);
         setIsTrialEligible(false);
         setIsCached(false);
-        setLastValidatedAt(res.subscription.server_time || new Date().toISOString());
+        setLastValidatedAt(subData.server_time || new Date().toISOString());
         try {
-          await writeCache('fox_player_cached_subscription', res.subscription);
+          await writeCache('fox_player_cached_subscription', subData);
         } catch (_e) {}
         setIsLoading(false);
-        return res.subscription;
+        return subData;
       }
 
       // No active subscription: check if backend confirms trial eligibility

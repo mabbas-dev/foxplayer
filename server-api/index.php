@@ -120,8 +120,25 @@ if ($path === '/api/devices/register' && $method === 'POST') {
     $devRow = $dCheck->fetch();
     $idLock = (bool)($devRow['id_lock'] ?? false);
 
+    $subPayload = [
+        'id' => (int)($sub['id'] ?? 0),
+        'device_id' => $deviceId,
+        'installation_id' => $installationId,
+        'subscription_type' => $sub['subscription_type'] ?? 'trial',
+        'type' => $sub['subscription_type'] ?? 'trial',
+        'status' => $isActive ? 'active' : 'expired',
+        'is_active' => $isActive,
+        'is_valid' => $isActive,
+        'remaining_days' => $daysLeft,
+        'days_left' => $daysLeft,
+        'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $expiryTime),
+        'starts_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($sub['starts_at'] . ' UTC')),
+        'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
+    ];
+
     json_response([
         'success' => true,
+        'has_subscription' => true,
         'device_id' => $deviceId,
         'installation_id' => $installationId,
         'id_lock' => $idLock,
@@ -130,14 +147,14 @@ if ($path === '/api/devices/register' && $method === 'POST') {
             'id_lock' => $idLock
         ],
         'status' => $isActive ? 'active' : 'expired',
-        'subscription' => [
-            'type' => $sub['subscription_type'],
-            'status' => $sub['status'],
-            'is_active' => $isActive,
-            'days_left' => $daysLeft,
-            'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $expiryTime),
-            'starts_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($sub['starts_at'] . ' UTC'))
-        ]
+        'is_active' => $isActive,
+        'is_valid' => $isActive,
+        'days_left' => $daysLeft,
+        'remaining_days' => $daysLeft,
+        'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $expiryTime),
+        'starts_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($sub['starts_at'] . ' UTC')),
+        'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
+        'subscription' => $subPayload
     ]);
 }
 
@@ -166,9 +183,12 @@ if ($path === '/api/subscription/status' && $method === 'GET') {
         json_response([
             'success' => true,
             'configured' => false,
+            'has_subscription' => false,
             'status' => 'not_found',
             'is_active' => false,
-            'days_left' => 0
+            'is_valid' => false,
+            'days_left' => 0,
+            'remaining_days' => 0
         ]);
     }
 
@@ -177,15 +197,37 @@ if ($path === '/api/subscription/status' && $method === 'GET') {
     $isActive = ($expiryTime > $now) && ($sub['status'] === 'active');
     $daysLeft = max(0, (int)ceil(($expiryTime - $now) / 86400));
 
-    json_response([
-        'success' => true,
+    $subPayload = [
+        'id' => (int)$sub['id'],
         'device_id' => $sub['device_id'],
+        'installation_id' => $sub['installation_id'],
         'subscription_type' => $sub['subscription_type'],
+        'type' => $sub['subscription_type'],
         'status' => $isActive ? 'active' : 'expired',
         'is_active' => $isActive,
+        'is_valid' => $isActive,
+        'remaining_days' => $daysLeft,
         'days_left' => $daysLeft,
         'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $expiryTime),
         'starts_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($sub['starts_at'] . ' UTC')),
+        'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
+    ];
+
+    json_response([
+        'success' => true,
+        'has_subscription' => true,
+        'subscription' => $subPayload,
+        'device_id' => $sub['device_id'],
+        'subscription_type' => $sub['subscription_type'],
+        'type' => $sub['subscription_type'],
+        'status' => $isActive ? 'active' : 'expired',
+        'is_active' => $isActive,
+        'is_valid' => $isActive,
+        'days_left' => $daysLeft,
+        'remaining_days' => $daysLeft,
+        'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $expiryTime),
+        'starts_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($sub['starts_at'] . ' UTC')),
+        'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
         'id_lock' => (bool)($sub['id_lock'] ?? false)
     ]);
 }

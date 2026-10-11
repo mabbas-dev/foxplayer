@@ -8,6 +8,7 @@ import {
   Image,
   Clipboard,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Colors from '../constants/colors';
@@ -52,79 +53,85 @@ export default function SubscriptionExpiredBarrier() {
     }
   };
 
-  const statusText = subscription?.status ? subscription.status.toUpperCase() : 'EXPIRED';
-  const reasonText = subscription?.reason || 'Your 7-day free trial on this installation has concluded.';
-  const expiresFormatted = subscription?.expires_at ? new Date(subscription.expires_at).toLocaleString() : 'N/A';
+  const statusText = subscription?.status ? subscription.status.toUpperCase() : 'INACTIVE';
+  const reasonText = subscription?.reason || 'Your trial or subscription on this device is currently inactive.';
+  const expiresFormatted = subscription?.expires_at ? new Date(subscription.expires_at).toLocaleDateString() : 'N/A';
 
   return (
     <View style={styles.barrierContainer} pointerEvents="auto">
       <View style={styles.barrierCard}>
-        {/* Logo & Header */}
-        <Image
-          source={require('../../assets/inside-app-logo.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Logo & Header */}
+          <Image
+            source={require('../../assets/inside-app-logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
 
-        <View style={styles.statusBadgeContainer}>
-          <Text style={styles.statusBadgeText}>{statusText}</Text>
-        </View>
-
-        <Text style={styles.barrierTitle}>Device Subscription Inactive</Text>
-        <Text style={styles.barrierSubtitle}>
-          {reasonText} The backend server is the authoritative source of truth for device authorizations.
-        </Text>
-
-        {/* Identity & Timestamps Box */}
-        <View style={styles.detailsBox}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>DEVICE ID</Text>
-            <Text style={styles.detailValueBold}>{deviceId || 'UNKNOWN'}</Text>
+          <View style={styles.statusBadgeContainer}>
+            <Text style={styles.statusBadgeText}>{statusText}</Text>
           </View>
 
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>INSTALLATION UUID</Text>
-            <TouchableOpacity onPress={handleCopyUuid} activeOpacity={0.7} style={styles.copyRow}>
-              <Text style={styles.detailValueMono} numberOfLines={1}>
-                {installationId || 'Not Registered'}
-              </Text>
-              <Text style={styles.copyButtonText}>{copied ? 'COPIED!' : 'COPY'}</Text>
+          <Text style={styles.barrierTitle}>Subscription Inactive</Text>
+          <Text style={styles.barrierSubtitle}>
+            {reasonText}
+          </Text>
+
+          {/* Identity & Timestamps Box */}
+          <View style={styles.detailsBox}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>DEVICE ID</Text>
+              <Text style={styles.detailValueBold}>{deviceId || 'UNKNOWN'}</Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>UUID</Text>
+              <TouchableOpacity onPress={handleCopyUuid} activeOpacity={0.7} style={styles.copyRow}>
+                <Text style={styles.detailValueMono} numberOfLines={1}>
+                  {installationId || 'Not Registered'}
+                </Text>
+                <Text style={styles.copyButtonText}>{copied ? 'COPIED' : 'COPY'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>EXPIRES</Text>
+              <Text style={styles.detailValue}>{expiresFormatted}</Text>
+            </View>
+          </View>
+
+          {/* Action Buttons Side-by-side matching Settings Screen */}
+          <View style={styles.actionsContainer}>
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={handleRefresh}
+              disabled={isRefreshing}
+              activeOpacity={0.8}
+            >
+              {isRefreshing ? (
+                <ActivityIndicator color="#000000" size="small" />
+              ) : (
+                <Text style={styles.primaryButtonText}>Check Status</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => router.push('/settings')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.secondaryButtonText}>Settings</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>EXPIRATION (UTC)</Text>
-            <Text style={styles.detailValue}>{expiresFormatted}</Text>
-          </View>
-        </View>
-
-        {/* Action Buttons */}
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={handleRefresh}
-            disabled={isRefreshing}
-            activeOpacity={0.8}
-          >
-            {isRefreshing ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Check Subscription Status</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => router.push('/settings')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.secondaryButtonText}>App Settings</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.footerNote}>
-          To extend or activate this device, provide your Installation UUID to your IPTV administrator.
-        </Text>
+          <Text style={styles.footerNote}>
+            To renew or activate this device, provide your Device ID or UUID to your administrator.
+          </Text>
+        </ScrollView>
       </View>
     </View>
   );
@@ -133,71 +140,70 @@ export default function SubscriptionExpiredBarrier() {
 const styles = StyleSheet.create({
   barrierContainer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(8, 10, 15, 0.96)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     zIndex: 9999,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 16,
   },
   barrierCard: {
-    backgroundColor: '#161C26',
+    width: '90%',
+    maxWidth: 380,
+    maxHeight: '92%',
+    backgroundColor: Colors.background.secondary,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(232, 50, 26, 0.35)',
-    borderRadius: 20,
-    padding: 28,
-    width: '100%',
-    maxWidth: 520,
+    borderColor: Colors.border.default,
+  },
+  scrollContent: {
     alignItems: 'center',
-    shadowColor: '#E8321A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    elevation: 12,
   },
   logo: {
-    width: 140,
-    height: 38,
-    marginBottom: 16,
+    width: 90,
+    height: 24,
+    marginBottom: 8,
   },
   statusBadgeContainer: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(239, 68, 68, 0.4)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderRadius: 6,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   statusBadgeText: {
     color: '#EF4444',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 1.5,
+    letterSpacing: 1,
   },
   barrierTitle: {
-    color: '#F0F2F5',
-    fontSize: 22,
-    fontWeight: '900',
+    color: Colors.text.primary,
+    fontSize: 15,
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   barrierSubtitle: {
-    color: '#9BA3B2',
-    fontSize: 13,
-    lineHeight: 18,
+    color: Colors.text.secondary,
+    fontSize: 11.5,
+    lineHeight: 16,
     textAlign: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 8,
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   detailsBox: {
     width: '100%',
-    backgroundColor: '#0D1117',
+    backgroundColor: Colors.background.card,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    gap: 10,
+    borderColor: Colors.border.subtle,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+    gap: 6,
   },
   detailRow: {
     flexDirection: 'row',
@@ -205,77 +211,81 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   detailLabel: {
-    color: '#5C6370',
-    fontSize: 10.5,
+    color: Colors.text.tertiary,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
   },
   detailValue: {
-    color: '#9BA3B2',
-    fontSize: 12,
+    color: Colors.text.secondary,
+    fontSize: 11,
   },
   detailValueBold: {
-    color: '#F0F2F5',
-    fontSize: 13,
+    color: Colors.brand.primary,
+    fontSize: 11.5,
     fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
-    fontWeight: '800',
-    letterSpacing: 1,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   detailValueMono: {
-    color: '#E2E8F0',
-    fontSize: 11,
+    color: Colors.text.primary,
+    fontSize: 10.5,
     fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
-    maxWidth: 200,
+    maxWidth: 160,
   },
   copyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   copyButtonText: {
     color: Colors.brand.primary,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
   },
   actionsContainer: {
+    flexDirection: 'row',
     width: '100%',
-    gap: 10,
-    marginBottom: 14,
+    gap: 8,
+    marginTop: 2,
+    marginBottom: 10,
   },
   primaryButton: {
+    flex: 1,
     backgroundColor: Colors.brand.primary,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 9,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: '700',
   },
   secondaryButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    flex: 1,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingVertical: 11,
-    borderRadius: 10,
+    borderColor: Colors.border.default,
+    paddingVertical: 9,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   secondaryButtonText: {
-    color: '#9BA3B2',
-    fontSize: 13,
-    fontWeight: '700',
+    color: Colors.text.secondary,
+    fontSize: 12,
+    fontWeight: '600',
   },
   footerNote: {
-    color: '#5C6370',
-    fontSize: 11,
+    color: Colors.text.tertiary,
+    fontSize: 10,
     textAlign: 'center',
-    lineHeight: 15,
+    lineHeight: 14,
   },
 });

@@ -171,14 +171,21 @@ function reducer(state, action) {
   switch (action.type) {
     case 'SET_INSTALLATION_ID':
       return { ...state, installationId: action.payload };
-    case 'SET_SUBSCRIPTION':
+    case 'SET_SUBSCRIPTION': {
+      const sub = action.payload;
+      const isValid = sub
+        ? (sub.is_valid !== undefined
+            ? Boolean(sub.is_valid)
+            : (sub.is_active !== undefined ? Boolean(sub.is_active) : sub.status === 'active'))
+        : true;
       return {
         ...state,
-        subscription: action.payload,
-        isSubscriptionValid: action.payload ? Boolean(action.payload.is_valid) : true,
-        appExpiresAt: action.payload?.expires_at || null,
-        isTrialEligible: action.payload ? false : state.isTrialEligible,
+        subscription: sub,
+        isSubscriptionValid: isValid,
+        appExpiresAt: sub?.expires_at || null,
+        isTrialEligible: sub ? false : state.isTrialEligible,
       };
+    }
     case 'SET_TRIAL_ELIGIBILITY':
       return {
         ...state,
@@ -540,10 +547,11 @@ export function AppProvider({ children }) {
       let remotePlaylists = [];
       try {
         const regRes = await registerDevice(deviceId, { installationId });
-        if (regRes?.subscription) {
-          dispatch({ type: 'SET_SUBSCRIPTION', payload: regRes.subscription });
+        const subData = regRes?.subscription || (regRes?.is_active !== undefined ? regRes : null);
+        if (subData) {
+          dispatch({ type: 'SET_SUBSCRIPTION', payload: subData });
           try {
-            await writeCache('fox_player_cached_subscription', regRes.subscription);
+            await writeCache('fox_player_cached_subscription', subData);
           } catch (_e) {}
         } else if (regRes?.is_trial_eligible) {
           dispatch({
@@ -1567,12 +1575,13 @@ export function AppProvider({ children }) {
     if (!state.deviceId && !state.installationId) return null;
     try {
       const res = await getSubscriptionStatus(state.deviceId, state.installationId);
-      if (res?.has_subscription && res.subscription) {
-        dispatch({ type: 'SET_SUBSCRIPTION', payload: res.subscription });
+      const subData = res?.subscription || (res?.has_subscription || res?.is_active !== undefined ? res : null);
+      if (subData) {
+        dispatch({ type: 'SET_SUBSCRIPTION', payload: subData });
         try {
-          await writeCache('fox_player_cached_subscription', res.subscription);
+          await writeCache('fox_player_cached_subscription', subData);
         } catch (_e) {}
-        return res.subscription;
+        return subData;
       } else if (res?.is_trial_eligible) {
         dispatch({
           type: 'SET_TRIAL_ELIGIBILITY',
