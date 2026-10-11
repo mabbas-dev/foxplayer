@@ -10,18 +10,18 @@ if (!isset($activeNav)) $activeNav = 'home';
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?php echo htmlspecialchars($pageTitle); ?></title>
   <meta name="description" content="FOX PLAYER is a high-performance IPTV & multimedia player supporting Xtream Codes API, M3U playlists, multi-device management, and fast channel zapping.">
-  <link rel="icon" type="image/png" href="/assets/logo.png">
+  <link rel="icon" type="image/png" href="/assets/inside-app-logo.png?v=2.2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="stylesheet" href="/assets/style.css?v=2.2">
 </head>
 <body>
   <header class="site-header">
     <div class="container">
       <div class="nav-wrap">
-        <a href="/" class="brand-logo">
-          <img src="/assets/logo.png" alt="FOX PLAYER">
+        <a href="/" class="brand-logo" title="FOX PLAYER">
+          <img src="/assets/inside-app-logo.png?v=2.2" alt="FOX PLAYER">
         </a>
 
         <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle navigation">

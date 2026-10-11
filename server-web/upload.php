@@ -43,7 +43,8 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
         <form id="upload-form" onsubmit="handleUploadPlaylist(event)">
           <div class="form-group">
             <label class="form-label" for="mac-input">Device ID or MAC Address *</label>
-            <input type="text" id="mac-input" class="form-input" placeholder="e.g. 00:1A:79:XX:XX:XX or FOXA1B2C" value="<?php echo $prefillId; ?>" required>
+            <input type="text" id="mac-input" class="form-input" placeholder="e.g. 00:1A:79:XX:XX:XX or 1PFDES0P" value="<?php echo $prefillId; ?>" required autocomplete="off">
+            <div id="mac-validation-msg"></div>
             <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">Found in FOX PLAYER Settings or Pairing screen.</small>
           </div>
 
@@ -105,9 +106,12 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
           <p class="panel-desc">View existing playlists linked to your device, switch active playlist, or remove items.</p>
         </div>
 
-        <div style="display: flex; gap: 12px; margin-bottom: 24px;">
-          <input type="text" id="manage-mac" class="form-input" placeholder="Enter Device ID or MAC Address" value="<?php echo $prefillId; ?>">
-          <button class="btn btn-primary" onclick="loadMyPlaylists()">Fetch Playlists</button>
+        <div style="margin-bottom: 24px;">
+          <div style="display: flex; gap: 12px;">
+            <input type="text" id="manage-mac" class="form-input" placeholder="Enter Device ID or MAC Address" value="<?php echo $prefillId; ?>" autocomplete="off">
+            <button class="btn btn-primary" id="btn-fetch-playlists" onclick="loadMyPlaylists()">Fetch Playlists</button>
+          </div>
+          <div id="manage-validation-msg"></div>
         </div>
 
         <div id="playlists-list-container">
@@ -123,15 +127,16 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="wipe-mac">Your MAC Address or Device ID</label>
-          <input type="text" id="wipe-mac" class="form-input" placeholder="e.g. 00:1A:79:XX:XX:XX or FOXA1B2C" value="<?php echo $prefillId; ?>">
+          <label class="form-label" for="wipe-mac">Your MAC Address or Device ID *</label>
+          <input type="text" id="wipe-mac" class="form-input" placeholder="e.g. 00:1A:79:XX:XX:XX or 1PFDES0P" value="<?php echo $prefillId; ?>" autocomplete="off">
+          <div id="wipe-validation-msg"></div>
         </div>
 
         <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-md); padding: 14px; margin-bottom: 20px; font-size: 13px; color: #FCA5A5;">
           <strong>Warning:</strong> This operation will irreversibly wipe all linked playlists from your FOX PLAYER account. You will need to re-upload your list to resume watching.
         </div>
 
-        <button class="btn btn-danger btn-block" onclick="handleWipeAll()">Delete All Playlist Links</button>
+        <button class="btn btn-danger btn-block" id="btn-wipe" onclick="handleWipeAll()">Delete All Playlist Links</button>
       </div>
     </div>
   </div>
@@ -139,7 +144,7 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
 
 <script>
   function switchTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
       btn.classList.remove('active');
     });
     event.currentTarget.classList.add('active');
@@ -154,16 +159,150 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
     document.getElementById('xtream-fields').style.display = (type === 'xtream') ? 'block' : 'none';
   }
 
+  // Live Device Verification & Lock Check
+  let validationDebounceTimer = null;
+
+  async function checkDevice(deviceId, msgContainerId, btnId) {
+    const container = document.getElementById(msgContainerId);
+    const btn = btnId ? document.getElementById(btnId) : null;
+    const clean = (deviceId || '').trim().toUpperCase();
+
+    if (!clean) {
+      if (container) container.innerHTML = '';
+      if (btn) btn.disabled = false;
+      return { valid: false, locked: false };
+    }
+
+    if (container) {
+      container.innerHTML = `
+        <div class="validation-alert validation-alert-loading">
+          <div class="alert-icon">⏳</div>
+          <div>Checking Device ID with FOX PLAYER server...</div>
+        </div>
+      `;
+    }
+
+    try {
+      const res = await fetch(`${window.API_BASE}/api/device/${encodeURIComponent(clean)}/validate`);
+      const data = await res.json();
+
+      if (!res.ok || !data.success || !data.registered) {
+        if (container) {
+          container.innerHTML = `
+            <div class="validation-alert validation-alert-error">
+              <div class="alert-icon">❌</div>
+              <div>
+                <strong>Device ID Not Recognized</strong>
+                <p>This Device ID has not been registered by FOX PLAYER app yet. Please open the FOX PLAYER app on your TV or phone first so your official Device ID is generated and registered.</p>
+              </div>
+            </div>
+          `;
+        }
+        if (btn) btn.disabled = true;
+        return { valid: false, locked: false };
+      }
+
+      if (data.id_lock) {
+        if (container) {
+          container.innerHTML = `
+            <div class="validation-alert validation-alert-locked">
+              <div class="alert-icon">🔒</div>
+              <div>
+                <strong>Device is Locked in FOX PLAYER App</strong>
+                <p>Device ID Lock is currently turned ON in your TV / App Settings. Website playlist modifications are blocked for security. Please open FOX PLAYER on your TV/device, go to <em>Settings</em>, and turn OFF <strong>"Lock ID"</strong> to make changes here.</p>
+              </div>
+            </div>
+          `;
+        }
+        if (btn) btn.disabled = true;
+        return { valid: true, locked: true };
+      }
+
+      if (container) {
+        container.innerHTML = `
+          <div class="validation-alert validation-alert-success">
+            <div class="alert-icon">✓</div>
+            <div>
+              <strong>Device Verified & Unlocked</strong>
+              <p>Device ID confirmed in FOX PLAYER system. Ready for playlist management.</p>
+            </div>
+          </div>
+        `;
+      }
+      if (btn) btn.disabled = false;
+      return { valid: true, locked: false };
+    } catch (err) {
+      if (container) {
+        container.innerHTML = `
+          <div class="validation-alert validation-alert-error">
+            <div class="alert-icon">⚠️</div>
+            <div>Network error checking device: ${err.message}</div>
+          </div>
+        `;
+      }
+      return { valid: false, locked: false };
+    }
+  }
+
+  // Setup live input listeners
+  function setupDeviceInputWatcher(inputId, msgId, btnId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    input.addEventListener('input', (e) => {
+      clearTimeout(validationDebounceTimer);
+      const val = e.target.value.trim().toUpperCase();
+      validationDebounceTimer = setTimeout(() => {
+        checkDevice(val, msgId, btnId);
+      }, 450);
+    });
+
+    input.addEventListener('blur', (e) => {
+      const val = e.target.value.trim().toUpperCase();
+      checkDevice(val, msgId, btnId);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    setupDeviceInputWatcher('mac-input', 'mac-validation-msg', 'btn-upload');
+    setupDeviceInputWatcher('manage-mac', 'manage-validation-msg', 'btn-fetch-playlists');
+    setupDeviceInputWatcher('wipe-mac', 'wipe-validation-msg', 'btn-wipe');
+
+    // If prefilled, trigger check
+    const prefill = document.getElementById('mac-input').value.trim();
+    if (prefill) {
+      checkDevice(prefill, 'mac-validation-msg', 'btn-upload');
+    }
+  });
+
   // Handle Upload Playlist
   async function handleUploadPlaylist(e) {
     e.preventDefault();
     const btn = document.getElementById('btn-upload');
-    const mac = document.getElementById('mac-input').value.trim();
+    const mac = document.getElementById('mac-input').value.trim().toUpperCase();
     const name = document.getElementById('playlist-name').value.trim();
     const type = document.querySelector('input[name="playlist-type"]:checked').value;
 
     if (!mac) {
       showToast('Please enter your Device ID or MAC Address.', 'error');
+      return;
+    }
+
+    // Verify device status before sending
+    btn.disabled = true;
+    btn.textContent = 'Verifying Device...';
+
+    const check = await checkDevice(mac, 'mac-validation-msg', 'btn-upload');
+    if (!check.valid) {
+      showToast('Device ID not found! Please open FOX PLAYER app on your TV/device first.', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Save & Link Playlist';
+      return;
+    }
+    if (check.locked) {
+      showToast('Device is Locked! Unlock in FOX PLAYER App Settings first.', 'error');
+      btn.disabled = true;
+      btn.textContent = 'Save & Link Playlist (Locked)';
       return;
     }
 
@@ -177,6 +316,8 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
       const url = document.getElementById('m3u-url').value.trim();
       if (!url) {
         showToast('Please enter your M3U Playlist URL.', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Save & Link Playlist';
         return;
       }
       payload.playlist_url = url;
@@ -186,6 +327,8 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
       const pass = document.getElementById('xtream-pass').value.trim();
       if (!server || !user || !pass) {
         showToast('Please fill all Xtream Codes server fields.', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Save & Link Playlist';
         return;
       }
       payload.server_url = server;
@@ -193,7 +336,6 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
       payload.password = pass;
     }
 
-    btn.disabled = true;
     btn.textContent = 'Saving Playlist...';
 
     try {
@@ -208,8 +350,17 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
         showToast('Playlist uploaded successfully! Reload your FOX PLAYER app.', 'success');
         document.getElementById('upload-form').reset();
         document.getElementById('mac-input').value = mac;
+        checkDevice(mac, 'mac-validation-msg', 'btn-upload');
       } else {
-        showToast(data.error?.message || 'Failed to upload playlist.', 'error');
+        if (data.error?.code === 'DEVICE_LOCKED') {
+          showToast('Device is Locked! Please unlock from FOX PLAYER app settings first.', 'error');
+          checkDevice(mac, 'mac-validation-msg', 'btn-upload');
+        } else if (data.error?.code === 'DEVICE_NOT_FOUND') {
+          showToast('Device ID not found. Open FOX PLAYER app first so your ID is registered.', 'error');
+          checkDevice(mac, 'mac-validation-msg', 'btn-upload');
+        } else {
+          showToast(data.error?.message || 'Failed to upload playlist.', 'error');
+        }
       }
     } catch (err) {
       showToast('Network error contacting server: ' + err.message, 'error');
@@ -221,7 +372,7 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
 
   // Load playlists for device
   async function loadMyPlaylists() {
-    const mac = document.getElementById('manage-mac').value.trim();
+    const mac = document.getElementById('manage-mac').value.trim().toUpperCase();
     const container = document.getElementById('playlists-list-container');
     if (!mac) {
       showToast('Please enter Device ID or MAC Address.', 'error');
@@ -230,19 +381,53 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
 
     container.innerHTML = '<p style="text-align: center; padding: 20px;">Fetching playlists...</p>';
 
+    // First validate
+    const check = await checkDevice(mac, 'manage-validation-msg', 'btn-fetch-playlists');
+    if (!check.valid) {
+      container.innerHTML = `
+        <div class="validation-alert validation-alert-error" style="margin: 20px 0;">
+          <div class="alert-icon">❌</div>
+          <div>
+            <strong>Device ID Not Registered</strong>
+            <p>Please open FOX PLAYER app on your TV or mobile device first so your Device ID is generated and registered.</p>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     try {
       const res = await fetch(`${window.API_BASE}/api/device/${encodeURIComponent(mac)}/playlists`);
       const data = await res.json();
 
-      if (!data.success || !data.playlists || data.playlists.length === 0) {
-        container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 30px;">No playlists found for this device.</p>';
+      if (!data.success) {
+        container.innerHTML = `<p style="color: var(--error); text-align: center; padding: 30px;">${data.error?.message || 'Error fetching playlists.'}</p>`;
         return;
       }
 
-      let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+      const isLocked = Boolean(data.id_lock);
+      let lockNotice = '';
+      if (isLocked) {
+        lockNotice = `
+          <div class="validation-alert validation-alert-locked" style="margin-bottom: 20px;">
+            <div class="alert-icon">🔒</div>
+            <div>
+              <strong>Device is Locked in App Settings</strong>
+              <p>Playlists can be viewed, but changing active playlist or deleting playlists is locked. Turn off "Lock ID" in FOX PLAYER App Settings to modify.</p>
+            </div>
+          </div>
+        `;
+      }
+
+      if (!data.playlists || data.playlists.length === 0) {
+        container.innerHTML = lockNotice + '<p style="color: var(--text-muted); text-align: center; padding: 30px;">No playlists found for this device. Go to "Upload Playlist" tab to add one.</p>';
+        return;
+      }
+
+      let html = lockNotice + '<div style="display: flex; flex-direction: column; gap: 12px;">';
       data.playlists.forEach(p => {
         html += `
-          <div style="background: var(--bg-secondary); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: gap: 12px;">
+          <div style="background: var(--bg-secondary); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
               <div style="font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px;">
                 ${p.playlist_name}
@@ -254,8 +439,8 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
               </div>
             </div>
             <div style="display: flex; gap: 8px;">
-              ${!p.is_active ? `<button class="btn btn-sm btn-secondary" onclick="setActivePlaylist('${mac}', ${p.id})">Set Active</button>` : ''}
-              <button class="btn btn-sm btn-danger" onclick="deletePlaylist('${mac}', ${p.id})">Delete</button>
+              ${!p.is_active ? `<button class="btn btn-sm btn-secondary" ${isLocked ? 'disabled title="Device is Locked"' : ''} onclick="setActivePlaylist('${mac}', ${p.id})">Set Active</button>` : ''}
+              <button class="btn btn-sm btn-danger" ${isLocked ? 'disabled title="Device is Locked"' : ''} onclick="deletePlaylist('${mac}', ${p.id})">Delete</button>
             </div>
           </div>
         `;
@@ -279,7 +464,11 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
         showToast('Active playlist updated.', 'success');
         loadMyPlaylists();
       } else {
-        showToast(data.error?.message || 'Error updating active playlist.', 'error');
+        if (data.error?.code === 'DEVICE_LOCKED') {
+          showToast('Device is Locked in App! Unlock from FOX PLAYER settings first.', 'error');
+        } else {
+          showToast(data.error?.message || 'Error updating active playlist.', 'error');
+        }
       }
     } catch (e) {
       showToast('Network error: ' + e.message, 'error');
@@ -297,7 +486,11 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
         showToast('Playlist deleted.', 'success');
         loadMyPlaylists();
       } else {
-        showToast(data.error?.message || 'Error deleting playlist.', 'error');
+        if (data.error?.code === 'DEVICE_LOCKED') {
+          showToast('Device is Locked in App! Unlock from FOX PLAYER settings first.', 'error');
+        } else {
+          showToast(data.error?.message || 'Error deleting playlist.', 'error');
+        }
       }
     } catch (e) {
       showToast('Network error: ' + e.message, 'error');
@@ -305,11 +498,22 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
   }
 
   async function handleWipeAll() {
-    const mac = document.getElementById('wipe-mac').value.trim();
+    const mac = document.getElementById('wipe-mac').value.trim().toUpperCase();
     if (!mac) {
       showToast('Please enter your Device ID or MAC Address.', 'error');
       return;
     }
+
+    const check = await checkDevice(mac, 'wipe-validation-msg', 'btn-wipe');
+    if (!check.valid) {
+      showToast('Device ID not found! Launch FOX PLAYER app first.', 'error');
+      return;
+    }
+    if (check.locked) {
+      showToast('Device is Locked in App! Unlock from FOX PLAYER settings first.', 'error');
+      return;
+    }
+
     if (!confirm('Are you ABSOLUTELY SURE you want to delete ALL playlist links for ' + mac + '? This action cannot be undone.')) return;
 
     try {
@@ -320,7 +524,11 @@ $prefillId = htmlspecialchars($_GET['device-id'] ?? ($_GET['mac'] ?? ''));
       if (data.success) {
         showToast(data.message || 'All playlists removed successfully.', 'success');
       } else {
-        showToast(data.error?.message || 'Failed to wipe playlists.', 'error');
+        if (data.error?.code === 'DEVICE_LOCKED') {
+          showToast('Device is Locked in App! Unlock from FOX PLAYER settings first.', 'error');
+        } else {
+          showToast(data.error?.message || 'Failed to wipe playlists.', 'error');
+        }
       }
     } catch (e) {
       showToast('Network error: ' + e.message, 'error');

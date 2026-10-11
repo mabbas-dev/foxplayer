@@ -11,7 +11,7 @@ require_once __DIR__ . '/header.php';
       <div class="panel-card" style="box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); border: 1px solid rgba(249, 115, 22, 0.25);">
         <div class="panel-header" style="text-align: center;">
           <div style="margin-bottom: 20px;">
-            <img src="/assets/logo.png" alt="FOX PLAYER Logo" style="height: 60px; max-width: 260px; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(249, 115, 22, 0.4));">
+            <img src="/assets/inside-app-logo.png?v=2.2" alt="FOX PLAYER Logo" style="height: 60px; max-width: 260px; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(249, 115, 22, 0.4));">
           </div>
           <h1 class="panel-title" style="font-size: 22px;">Administrator Sign In</h1>
           <p class="panel-desc">Master access to user licenses, trial settings, and playlists.</p>

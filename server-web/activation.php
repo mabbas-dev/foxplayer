@@ -26,9 +26,10 @@ $selectedPlan = htmlspecialchars($_GET['plan'] ?? 'YEAR_1');
         <div class="form-group">
           <label class="form-label" for="act-mac">Your MAC Address or Device ID *</label>
           <div style="display: flex; gap: 10px;">
-            <input type="text" id="act-mac" class="form-input" placeholder="e.g. 00:1A:79:XX:XX:XX or FOXA1B2C" value="<?php echo $prefillId; ?>" required>
+            <input type="text" id="act-mac" class="form-input" placeholder="e.g. 00:1A:79:XX:XX:XX or 1PFDES0P" value="<?php echo $prefillId; ?>" required autocomplete="off">
             <button type="button" class="btn btn-secondary" onclick="checkStatus()">Check Status</button>
           </div>
+          <small style="color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px;">Found in FOX PLAYER Settings or Activation screen on your TV/device.</small>
         </div>
 
         <!-- Status Card (Dynamically displayed) -->
@@ -83,34 +84,47 @@ $selectedPlan = htmlspecialchars($_GET['plan'] ?? 'YEAR_1');
   }
 
   async function checkStatus() {
-    const mac = document.getElementById('act-mac').value.trim();
+    const mac = document.getElementById('act-mac').value.trim().toUpperCase();
     const box = document.getElementById('status-card');
+    const btn = document.getElementById('btn-activate');
+
     if (!mac) {
       showToast('Please enter MAC address or Device ID.', 'error');
       return;
     }
 
     box.style.display = 'block';
-    box.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Querying authoritative subscription status...</p>';
+    box.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Verifying Device ID with FOX PLAYER server...</p>';
 
+    // First validate that device is genuinely registered by app
     try {
-      const res = await fetch(`${window.API_BASE}/api/subscription/status?device_id=${encodeURIComponent(mac)}`);
-      const data = await res.json();
+      const valRes = await fetch(`${window.API_BASE}/api/device/${encodeURIComponent(mac)}/validate`);
+      const valData = await valRes.json();
 
-      if (!data.success || data.status === 'not_found') {
+      if (!valRes.ok || !valData.success || !valData.registered) {
         box.innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="validation-alert validation-alert-error" style="margin: 0;">
+            <div class="alert-icon">❌</div>
             <div>
-              <strong>Device Status:</strong> Unregistered / New Device
-              <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Will be registered with full plan immediately upon activation.</p>
+              <strong>Device ID Not Registered</strong>
+              <p>This Device ID has not been opened or registered by FOX PLAYER app yet. Please open the FOX PLAYER app on your TV or mobile screen first to generate and register your official Device ID before activating.</p>
             </div>
-            <span class="badge badge-info">NEW</span>
           </div>
         `;
+        if (btn) btn.disabled = true;
         return;
       }
 
-      const isSubActive = data.is_active;
+      // If registered, query subscription details
+      const subRes = await fetch(`${window.API_BASE}/api/subscription/status?device_id=${encodeURIComponent(mac)}`);
+      const data = await subRes.json();
+
+      if (!data.success) {
+        box.innerHTML = `<p style="color: var(--error);">Error retrieving subscription: ${data.error?.message || 'Unknown error'}</p>`;
+        return;
+      }
+
+      const isSubActive = Boolean(data.is_active);
       const typeLabel = (data.subscription_type === 'forever') ? 'Lifetime Forever' : (data.subscription_type === 'year_1' ? '1 Year Pass' : 'Free Trial');
       const badgeClass = isSubActive ? 'badge-success' : 'badge-error';
 
@@ -123,9 +137,10 @@ $selectedPlan = htmlspecialchars($_GET['plan'] ?? 'YEAR_1');
         </div>
         <div style="font-size: 13px; color: var(--text-secondary); display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
           <div>Remaining Days: <strong>${data.days_left} days</strong></div>
-          <div>Expiration: <strong>${new Date(data.expires_at).toLocaleDateString()}</strong></div>
+          <div>Expiration: <strong>${data.expires_at ? new Date(data.expires_at).toLocaleDateString() : 'N/A'}</strong></div>
         </div>
       `;
+      if (btn) btn.disabled = false;
     } catch (e) {
       box.innerHTML = `<p style="color: var(--error);">Error retrieving status: ${e.message}</p>`;
     }
@@ -133,16 +148,36 @@ $selectedPlan = htmlspecialchars($_GET['plan'] ?? 'YEAR_1');
 
   async function handleActivation(e) {
     e.preventDefault();
-    const mac = document.getElementById('act-mac').value.trim();
+    const mac = document.getElementById('act-mac').value.trim().toUpperCase();
     const plan = document.querySelector('input[name="plan"]:checked').value;
     const btn = document.getElementById('btn-activate');
 
     if (!mac) {
-      showToast('Please enter your Device MAC.', 'error');
+      showToast('Please enter your Device ID or MAC.', 'error');
       return;
     }
 
     btn.disabled = true;
+    btn.textContent = 'Verifying Device...';
+
+    // Verify device registered by app
+    try {
+      const valRes = await fetch(`${window.API_BASE}/api/device/${encodeURIComponent(mac)}/validate`);
+      const valData = await valRes.json();
+      if (!valRes.ok || !valData.success || !valData.registered) {
+        showToast('Device not registered! Launch FOX PLAYER app on your TV/device first.', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Complete Activation';
+        checkStatus();
+        return;
+      }
+    } catch (err) {
+      showToast('Network error verifying device: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Complete Activation';
+      return;
+    }
+
     btn.textContent = 'Processing Activation...';
 
     try {
@@ -168,9 +203,11 @@ $selectedPlan = htmlspecialchars($_GET['plan'] ?? 'YEAR_1');
   }
 
   // Auto-check if prefilled
-  if (document.getElementById('act-mac').value) {
-    checkStatus();
-  }
+  document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('act-mac').value) {
+      checkStatus();
+    }
+  });
 </script>
 
 <?php require_once __DIR__ . '/footer.php'; ?>
