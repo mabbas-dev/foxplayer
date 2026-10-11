@@ -88,6 +88,34 @@ function decrypt_secret(?string $cipher): ?string {
 }
 
 /**
+ * Encrypt full API response payload with AES-256-CBC (compatible with FOX PLAYER React Native app)
+ * Output format: Base64(16-byte random IV + raw ciphertext)
+ */
+function encrypt_payload(mixed $data): string {
+    $plain = is_string($data) ? $data : json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $iv = openssl_random_pseudo_bytes(16);
+    $key = hash('sha256', 'FOX_PLAYER_CIPHER_KEY_2026_PRODUCTION_SECURE', true);
+    $cipher = openssl_encrypt($plain, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+    return base64_encode($iv . $cipher);
+}
+
+/**
+ * Decrypt full API payload
+ */
+function decrypt_payload(string $base64): mixed {
+    $raw = base64_decode($base64);
+    if (strlen($raw) < 17) return null;
+    $iv = substr($raw, 0, 16);
+    $cipher = substr($raw, 16);
+    $key = hash('sha256', 'FOX_PLAYER_CIPHER_KEY_2026_PRODUCTION_SECURE', true);
+    $plain = openssl_decrypt($cipher, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+    if ($plain === false) return null;
+    $decoded = json_decode($plain, true);
+    return ($decoded !== null) ? $decoded : $plain;
+}
+
+
+/**
  * Normalize device ID / MAC address
  */
 function normalize_device_id(string $id): string {

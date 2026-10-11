@@ -7,7 +7,7 @@ require_once __DIR__ . '/config.php';
 // Global CORS headers
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, x-device-id, x-installation-id, x-admin-key, x-admin-token, x-requested-with');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, x-device-id, x-installation-id, x-app-client, x-admin-key, x-admin-token, x-requested-with');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -466,12 +466,22 @@ if (preg_match('#^/api/device/([^/]+)/playlists$#', $path, $matches) && $method 
            ->execute([$canonicalDeviceId, $playlists[0]['id']]);
     }
 
+    $encryptedData = encrypt_payload($playlists);
+
+    // Completely redact plaintext passwords from unencrypted playlists representation
+    $safePlaylists = array_map(function($p) {
+        unset($p['password']);
+        return $p;
+    }, $playlists);
+
     json_response([
         'success' => true,
         'device_id' => $canonicalDeviceId,
         'id_lock' => (bool)$devRow['id_lock'],
         'count' => count($playlists),
-        'playlists' => $playlists
+        'encrypted' => true,
+        'data' => $encryptedData,
+        'playlists' => $safePlaylists
     ]);
 }
 
@@ -545,25 +555,14 @@ if (preg_match('#^/api/device/([^/]+)/playlist$#', $path, $matches) && $method =
         'enabled' => (bool)($r['enabled'] ?? true)
     ];
 
+    $encryptedPayload = encrypt_payload($configPayload);
+
     json_response([
         'success' => true,
         'configured' => true,
         'device_id' => $deviceId,
-        'id' => (int)$r['playlist_id'],
-        'playlist_id' => (int)$r['playlist_id'],
-        'type' => $r['type'],
-        'playlist_name' => $r['playlist_name'],
-        'name' => $r['playlist_name'],
-        'playlist_url' => $r['playlist_url'],
-        'playlistUrl' => $r['playlist_url'],
-        'server_url' => $r['server_url'],
-        'serverUrl' => $r['server_url'],
-        'username' => $r['username'],
-        'password' => $pw,
-        'is_active' => (bool)$r['is_active'],
-        'enabled' => (bool)($r['enabled'] ?? true),
-        'configuration' => $configPayload,
-        'config' => $configPayload
+        'encrypted' => true,
+        'data' => $encryptedPayload
     ]);
 }
 

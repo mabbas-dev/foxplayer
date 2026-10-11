@@ -6,6 +6,7 @@ import {
   isAbortOrCancelledError,
 } from './networkErrors.js';
 import { trackRequestStart, trackRequestEnd } from '../utils/requestDiagnostics.js';
+import { decryptPayload } from '../utils/payloadCrypto.js';
 
 export { ERROR_CATEGORY, AppNetworkError, isAbortOrCancelledError, isDeviceOffline };
 
@@ -51,6 +52,7 @@ async function request(method, path, body = null, options = {}) {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        'x-app-client': 'foxplayer-app-v2',
         ...(options.deviceId ? { 'x-device-id': options.deviceId } : {}),
         ...(options.installationId ? { 'x-installation-id': options.installationId } : {}),
         ...(options.headers || {}),
@@ -238,6 +240,25 @@ export async function getDevicePlaylists(deviceId, options = {}) {
   }
 
   const promise = request('GET', `/api/device/${deviceId}/playlists`, null, { deviceId, ...options })
+    .then((res) => {
+      if (!res || !res.success) return res;
+      if (res.encrypted && res.data) {
+        const decrypted = decryptPayload(res.data);
+        if (Array.isArray(decrypted)) {
+          return {
+            ...res,
+            playlists: decrypted,
+            count: decrypted.length,
+          };
+        } else if (decrypted && Array.isArray(decrypted.playlists)) {
+          return {
+            ...res,
+            ...decrypted,
+          };
+        }
+      }
+      return res;
+    })
     .finally(() => {
       inFlightDevicePlaylists.delete(key);
     });
@@ -258,6 +279,21 @@ export async function getDevicePlaylist(deviceId, playlistId = null, options = {
 
   const query = playlistId ? `?playlist_id=${encodeURIComponent(playlistId)}` : '';
   const promise = request('GET', `/api/device/${deviceId}/playlist${query}`, null, { deviceId, ...options })
+    .then((res) => {
+      if (!res || !res.success) return res;
+      if (res.encrypted && res.data) {
+        const decrypted = decryptPayload(res.data);
+        if (decrypted && typeof decrypted === 'object') {
+          return {
+            ...res,
+            ...decrypted,
+            configuration: decrypted,
+            config: decrypted,
+          };
+        }
+      }
+      return res;
+    })
     .finally(() => {
       inFlightDevicePlaylistConfig.delete(key);
     });
