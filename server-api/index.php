@@ -437,19 +437,33 @@ if (preg_match('#^/api/device/([^/]+)/playlists$#', $path, $matches) && $method 
     $rows = $stmt->fetchAll();
 
     $playlists = [];
+    $hasActive = false;
     foreach ($rows as $r) {
+        $isActive = (bool)$r['is_active'];
+        if ($isActive) $hasActive = true;
         $playlists[] = [
             'id' => (int)$r['playlist_id'],
+            'playlist_id' => (int)$r['playlist_id'],
             'device_playlist_id' => (int)$r['device_playlist_id'],
             'type' => $r['type'],
             'playlist_name' => $r['playlist_name'],
+            'name' => $r['playlist_name'],
             'playlist_url' => $r['playlist_url'],
+            'playlistUrl' => $r['playlist_url'],
             'server_url' => $r['server_url'],
+            'serverUrl' => $r['server_url'],
             'username' => $r['username'],
             'password' => decrypt_secret($r['password_encrypted']),
-            'is_active' => (bool)$r['is_active'],
+            'is_active' => $isActive,
             'enabled' => (bool)$r['enabled']
         ];
+    }
+
+    // If exactly one playlist exists or none marked active, activate the first one automatically
+    if (count($playlists) > 0 && !$hasActive) {
+        $playlists[0]['is_active'] = true;
+        $db->prepare("UPDATE device_playlists SET is_active = 1 WHERE device_id = ? AND playlist_id = ? LIMIT 1")
+           ->execute([$canonicalDeviceId, $playlists[0]['id']]);
     }
 
     json_response([
@@ -514,18 +528,42 @@ if (preg_match('#^/api/device/([^/]+)/playlist$#', $path, $matches) && $method =
         ]);
     }
 
+    $pw = decrypt_secret($r['password_encrypted']);
+    $configPayload = [
+        'id' => (int)$r['playlist_id'],
+        'playlist_id' => (int)$r['playlist_id'],
+        'type' => $r['type'],
+        'playlist_name' => $r['playlist_name'],
+        'name' => $r['playlist_name'],
+        'playlist_url' => $r['playlist_url'],
+        'playlistUrl' => $r['playlist_url'],
+        'server_url' => $r['server_url'],
+        'serverUrl' => $r['server_url'],
+        'username' => $r['username'],
+        'password' => $pw,
+        'is_active' => (bool)$r['is_active'],
+        'enabled' => (bool)($r['enabled'] ?? true)
+    ];
+
     json_response([
         'success' => true,
         'configured' => true,
         'device_id' => $deviceId,
+        'id' => (int)$r['playlist_id'],
         'playlist_id' => (int)$r['playlist_id'],
         'type' => $r['type'],
         'playlist_name' => $r['playlist_name'],
+        'name' => $r['playlist_name'],
         'playlist_url' => $r['playlist_url'],
+        'playlistUrl' => $r['playlist_url'],
         'server_url' => $r['server_url'],
+        'serverUrl' => $r['server_url'],
         'username' => $r['username'],
-        'password' => decrypt_secret($r['password_encrypted']),
-        'is_active' => (bool)$r['is_active']
+        'password' => $pw,
+        'is_active' => (bool)$r['is_active'],
+        'enabled' => (bool)($r['enabled'] ?? true),
+        'configuration' => $configPayload,
+        'config' => $configPayload
     ]);
 }
 

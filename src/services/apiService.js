@@ -65,24 +65,28 @@ async function request(method, path, body = null, options = {}) {
     const url = `${API_BASE_URL}${path}`;
     const response = await fetch(url, fetchOptions);
 
-    let json;
+    const text = await response.text();
+    let json = null;
     try {
-      json = await response.json();
+      json = text ? JSON.parse(text) : null;
     } catch (_parseErr) {
+      const status = response.status;
+      const cat = status >= 500 ? ERROR_CATEGORY.HTTP_ERROR : (status === 404 ? ERROR_CATEGORY.HTTP_ERROR : ERROR_CATEGORY.INVALID_RESPONSE);
+      const errMsg = status >= 500
+        ? 'Server is temporarily unavailable. Please try again.'
+        : (status === 404 ? 'Resource not found on server.' : 'Server returned an invalid response.');
+
       trackRequestEnd(reqId, {
         completionState: 'ERROR',
-        httpStatus: response.status,
-        errorCategory: ERROR_CATEGORY.INVALID_RESPONSE,
-        errorMessage: 'Invalid JSON response',
+        httpStatus: status,
+        errorCategory: cat,
+        errorMessage: errMsg,
       });
-      throw new AppNetworkError(
-        ERROR_CATEGORY.INVALID_RESPONSE,
-        'Server returned an invalid response.',
-        { statusCode: response.status, endpoint: path }
-      );
+
+      throw new AppNetworkError(cat, errMsg, { statusCode: status, endpoint: path });
     }
 
-    if (!response.ok || !json.success) {
+    if (!response.ok || !json?.success) {
       const status = response.status;
       let cat = ERROR_CATEGORY.HTTP_ERROR;
       if (status === 401 || status === 403) {
@@ -90,7 +94,7 @@ async function request(method, path, body = null, options = {}) {
       } else if (status >= 500) {
         cat = ERROR_CATEGORY.HTTP_ERROR;
       }
-      const errMsg = json?.error?.message || (status >= 500 ? 'Server error. Please try again.' : 'An unexpected error occurred.');
+      const errMsg = json?.error?.message || json?.message || (status >= 500 ? 'Server error. Please try again.' : 'An unexpected error occurred.');
 
       trackRequestEnd(reqId, {
         completionState: 'ERROR',

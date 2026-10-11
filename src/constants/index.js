@@ -15,17 +15,37 @@ export const APP_VERSION = '1.0.0';
 export const PRODUCTION_API_URL = 'https://api.foxplayer.app';
 export const PRODUCTION_PAIRING_URL = 'https://foxplayer.app';
 
-// API Configuration — defaults to production api.foxplayer.app unless overridden by env
+// API Configuration — authoritatively points to production https://api.foxplayer.app
 function resolveHostUrl() {
   const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
-    return envUrl;
+  if (
+    envUrl &&
+    typeof envUrl === 'string' &&
+    envUrl.startsWith('https://') &&
+    !envUrl.includes('localhost') &&
+    !envUrl.includes('127.0.0.1')
+  ) {
+    return envUrl.replace(/\/+$/, '');
   }
-  return envUrl || PRODUCTION_API_URL;
+  return PRODUCTION_API_URL;
+}
+
+function resolvePairingUrl() {
+  const envUrl = process.env.EXPO_PUBLIC_PAIRING_URL || process.env.EXPO_PUBLIC_PAIRING_BASE_URL;
+  if (
+    envUrl &&
+    typeof envUrl === 'string' &&
+    envUrl.startsWith('https://') &&
+    !envUrl.includes('localhost') &&
+    !envUrl.includes('127.0.0.1')
+  ) {
+    return envUrl.replace(/\/+$/, '');
+  }
+  return PRODUCTION_PAIRING_URL;
 }
 
 export const API_BASE_URL = resolveHostUrl();
-export const PAIRING_BASE_URL = process.env.EXPO_PUBLIC_PAIRING_URL || PRODUCTION_PAIRING_URL;
+export const PAIRING_BASE_URL = resolvePairingUrl();
 
 // Device ID
 export const DEVICE_ID_LENGTH = 8;

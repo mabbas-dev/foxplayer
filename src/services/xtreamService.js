@@ -20,8 +20,8 @@ export { resolvePosterUrl, sanitizePosterString };
  * Build base Xtream URL
  */
 function buildXtreamBase(serverUrl, username, password) {
-  const base = serverUrl.replace(/\/+$/, '');
-  return `${base}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
+  const base = (serverUrl || '').trim().replace(/\/+$/, '');
+  return `${base}/player_api.php?username=${encodeURIComponent(username || '')}&password=${encodeURIComponent(password || '')}`;
 }
 
 /**

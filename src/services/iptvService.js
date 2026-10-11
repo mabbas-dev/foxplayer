@@ -108,9 +108,9 @@ export async function syncPlaylist(deviceId, progressCallback, targetPlaylistId 
     }
   }
 
-  const config = configResponse.configuration || {};
-  const type = configResponse.type;
-  const playlistId = String(configResponse.id || targetPlaylistId || 'pl_default');
+  const rawConfig = configResponse.configuration || configResponse.config || configResponse || {};
+  const type = configResponse.type || rawConfig.type || (rawConfig.serverUrl || rawConfig.server_url ? CONFIG_TYPES.XTREAM : CONFIG_TYPES.M3U);
+  const playlistId = String(configResponse.id || configResponse.playlist_id || rawConfig.id || targetPlaylistId || 'pl_default');
 
   // Stale-identity guard: the backend must answer for the playlist we asked for.
   if (targetPlaylistId && String(targetPlaylistId) !== playlistId) {
@@ -119,8 +119,22 @@ export async function syncPlaylist(deviceId, progressCallback, targetPlaylistId 
 
   const playlistName =
     configResponse.name ||
-    config.playlist_name ||
-    (type === CONFIG_TYPES.XTREAM ? config.username : 'M3U Playlist');
+    configResponse.playlist_name ||
+    rawConfig.playlist_name ||
+    rawConfig.name ||
+    (type === CONFIG_TYPES.XTREAM ? (rawConfig.username || 'Xtream IPTV') : 'M3U Playlist');
+
+  const config = {
+    ...rawConfig,
+    server_url: rawConfig.server_url || rawConfig.serverUrl || rawConfig.url || '',
+    serverUrl: rawConfig.server_url || rawConfig.serverUrl || rawConfig.url || '',
+    playlist_url: rawConfig.playlist_url || rawConfig.playlistUrl || rawConfig.url || '',
+    playlistUrl: rawConfig.playlist_url || rawConfig.playlistUrl || rawConfig.url || '',
+    username: rawConfig.username || rawConfig.user || '',
+    password: rawConfig.password || rawConfig.pass || '',
+    playlist_name: playlistName,
+    name: playlistName,
+  };
 
   const configPayload = {
     id: playlistId,
@@ -283,7 +297,7 @@ function cleanMovieTitle(title) {
 async function syncM3U(config, progress, playlistId, signal) {
   progress('Loading playlist', 0.1);
 
-  const rawUrl = config.playlist_url || config.playlistUrl || config.url;
+  const rawUrl = (config.playlist_url || config.playlistUrl || config.url || '').trim();
   if (!rawUrl) {
     throw new AppNetworkError(
       ERROR_CATEGORY.INVALID_RESPONSE,
@@ -586,7 +600,17 @@ function compactSeriesItem(s) {
 }
 
 async function syncXtream(config, progress, playlistId, signal, configPayload) {
-  const { server_url: serverUrl, username, password } = config;
+  const serverUrl = (config.server_url || config.serverUrl || config.url || '').trim();
+  const username = (config.username || config.user || '').trim();
+  const password = (config.password || config.pass || '').trim();
+
+  if (!serverUrl || !username || !password) {
+    throw new AppNetworkError(
+      ERROR_CATEGORY.PLAYLIST_SOURCE_ERROR,
+      'Xtream configuration is incomplete. Missing Server URL, Username, or Password.'
+    );
+  }
+
   const net = { signal, strict: true };
 
   progress('Connecting & Authenticating', 0.1);

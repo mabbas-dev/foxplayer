@@ -152,7 +152,7 @@ export function getUserFriendlyErrorMessage(err) {
       }
       return err.message || `Request failed (HTTP ${err.statusCode}).`;
     case ERROR_CATEGORY.INVALID_RESPONSE:
-      return 'Server returned an invalid response.';
+      return err.message || 'Server returned an invalid response.';
     case ERROR_CATEGORY.DNS_ERROR:
       return 'Unable to resolve server address.';
     case ERROR_CATEGORY.PLAYLIST_SOURCE_ERROR:
