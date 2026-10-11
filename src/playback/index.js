@@ -17,6 +17,12 @@ export {
 } from './PlatformPlayer.js';
 export { PlaybackController } from './PlaybackController.js';
 export { usePlaybackController } from './usePlaybackController.js';
+export { BasePlaybackEngine } from './engines/BasePlaybackEngine.js';
+export { NativePlaybackEngine } from './engines/NativePlaybackEngine.js';
+export { VlcPlaybackEngine, isVlcNativeAvailable } from './engines/VlcPlaybackEngine.js';
+export { DualPlaybackCoordinator } from './engines/DualPlaybackCoordinator.js';
+export { UnifiedVideoSurface } from './components/UnifiedVideoSurface.js';
+export { useDualPlaybackEngine } from './useDualPlaybackEngine.js';
 
 import { PlaybackController } from './PlaybackController.js';
 export default PlaybackController;

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,13 +20,15 @@ import { BackArrowIcon } from '../components/Icons';
 import { useApp } from '../state/AppContext';
 import { useSubscription, SUBSCRIPTION_STATUS } from '../state/SubscriptionContext';
 import SubscriptionDetailsModal from '../components/SubscriptionDetailsModal';
+import PlaybackEngineModal from '../components/PlaybackEngineModal';
+import { ENGINE_MODE, ENGINE_TYPE } from '../playback/playbackTypes';
 import {
   setAdultPin,
   changeAdultPin,
   removeAdultPin,
   verifyAdultPin,
 } from '../storage/pinStorage';
-import { clearAllCache } from '../storage/cacheStorage';
+import { clearAllCache, readCache, writeCache } from '../storage/cacheStorage';
 import { APP_VERSION } from '../constants';
 import Colors from '../constants/colors';
 import NativePlayerTestHarness from '../components/NativePlayerTestHarness';
@@ -93,6 +95,16 @@ export default function SettingsScreen() {
   const [pinLoading, setPinLoading] = useState(false);
   const [showDiagnosticModal, setShowDiagnosticModal] = useState(false);
   const [showSubscriptionDetailsModal, setShowSubscriptionDetailsModal] = useState(false);
+  const [engineMode, setEngineMode] = useState(ENGINE_MODE.AUTO);
+  const [showEngineModal, setShowEngineModal] = useState(false);
+
+  useEffect(() => {
+    readCache('fox_player_preferred_engine_mode').then((saved) => {
+      if (saved === ENGINE_MODE.AUTO || saved === ENGINE_MODE.NATIVE || saved === ENGINE_MODE.VLC) {
+        setEngineMode(saved);
+      }
+    }).catch(() => {});
+  }, []);
 
   const formatDate = (ts) => {
     if (!ts) return 'Never';
@@ -386,9 +398,33 @@ export default function SettingsScreen() {
           </SettingsSection>
 
           <SettingsSection title="Playback">
+            <TouchableOpacity
+              style={styles.actionRow}
+              onPress={() => setShowEngineModal(true)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Select playback engine mode"
+            >
+              <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingRight: 6 }}>
+                <Text style={styles.actionRowLabel}>Engine Mode</Text>
+                <Text style={{ color: Colors.brand.primary, fontSize: 13, fontWeight: '700' }}>
+                  {engineMode === ENGINE_MODE.VLC
+                    ? 'VLC Player'
+                    : (engineMode === ENGINE_MODE.NATIVE
+                      ? (Platform.OS === 'ios' ? 'Native (AVPlayer)' : 'Native (Media3)')
+                      : 'Auto (Recommended)')}
+                </Text>
+              </View>
+              <Text style={styles.actionRowChevron}>&gt;</Text>
+            </TouchableOpacity>
+
             <SettingsRow
-              label="Video Engine"
-              value={Platform.OS === 'ios' ? 'AVPlayer (expo-video)' : 'Media3 (expo-video)'}
+              label="Primary Engine"
+              value={Platform.OS === 'ios' ? 'AVFoundation (AVPlayer)' : 'AndroidX Media3 (ExoPlayer)'}
+            />
+            <SettingsRow
+              label="Fallback Engine"
+              value="VLC Player (libVLC integrated)"
             />
             <TouchableOpacity
               style={styles.actionRow}
@@ -502,6 +538,20 @@ export default function SettingsScreen() {
       <SubscriptionDetailsModal
         visible={showSubscriptionDetailsModal}
         onClose={() => setShowSubscriptionDetailsModal(false)}
+      />
+
+      {/* Dual Playback Engine Selection Modal */}
+      <PlaybackEngineModal
+        visible={showEngineModal}
+        activeEngineType={engineMode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE}
+        engineMode={engineMode}
+        onSelectMode={async (mode) => {
+          setEngineMode(mode);
+          try {
+            await writeCache('fox_player_preferred_engine_mode', mode);
+          } catch (_e) {}
+        }}
+        onDismiss={() => setShowEngineModal(false)}
       />
     </View>
   );

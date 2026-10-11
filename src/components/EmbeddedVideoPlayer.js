@@ -42,7 +42,20 @@ import {
 } from '../utils/playerConfig.js';
 import { PlaybackController } from '../playback/PlaybackController.js';
 import { getPlatformPlayer } from '../playback/PlatformPlayer.js';
+import { ENGINE_TYPE, ENGINE_MODE, ENGINE_SWITCH_REASON } from '../playback/playbackTypes.js';
+import { DualPlaybackCoordinator } from '../playback/engines/DualPlaybackCoordinator.js';
+import UnifiedVideoSurface from '../playback/components/UnifiedVideoSurface.js';
+import PlaybackEngineModal from './PlaybackEngineModal.js';
+import { readCache, writeCache } from '../storage/cacheStorage.js';
 import { measureAndLogLayout } from '../utils/layoutDiagnostics';
+
+let useVlcPlayerHook = null;
+try {
+  const vlcModule = require('rn-vlc-plyr');
+  if (vlcModule && typeof vlcModule.useVlcPlayer === 'function') {
+    useVlcPlayerHook = vlcModule.useVlcPlayer;
+  }
+} catch (_e) {}
 
 /**
  * FOX PLAYER — Unified Live TV & Media Player Component
@@ -261,6 +274,87 @@ export default function EmbeddedVideoPlayer({
 
   const player = externalPlayer || internalPlayer;
 
+  // Dual Playback Engine state
+  const [activeEngineType, setActiveEngineType]   = useState(ENGINE_TYPE.NATIVE);
+  const [engineMode, setEngineMode]               = useState(ENGINE_MODE.AUTO);
+  const [showEngineModal, setShowEngineModal]     = useState(false);
+  const vlcAttemptsRef                            = useRef(0);
+
+  // Initialize VLC player hook if native module is linked
+  let vlcPlayer = null;
+  if (useVlcPlayerHook) {
+    try {
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      vlcPlayer = useVlcPlayerHook(undefined);
+    } catch (_e) {
+      vlcPlayer = null;
+    }
+  }
+
+  // Load preferred engine mode from cache
+  useEffect(() => {
+    readCache('fox_player_preferred_engine_mode').then((saved) => {
+      if (saved === ENGINE_MODE.AUTO || saved === ENGINE_MODE.NATIVE || saved === ENGINE_MODE.VLC) {
+        setEngineMode(saved);
+        if (saved === ENGINE_MODE.VLC) {
+          setActiveEngineType(ENGINE_TYPE.VLC);
+          vlcAttemptsRef.current = 1;
+        }
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Dual engine switcher
+  const switchEngine = useCallback(async (targetEngineType, reason = ENGINE_SWITCH_REASON.MANUAL_SWITCH) => {
+    if (activeEngineType === targetEngineType && playerStateRef.current === 'PLAYING') return;
+    setDebouncedBuffering(true);
+
+    const fromEngine = activeEngineType;
+    logPlayerDiagnostic('embeddedEngineSwitch', { from: fromEngine, to: targetEngineType, reason });
+
+    if (fromEngine === ENGINE_TYPE.NATIVE && player) {
+      try {
+        player.pause();
+        if (typeof player.replaceAsync === 'function') {
+          player.replaceAsync(null).catch(() => {});
+        }
+      } catch (_e) {}
+    } else if (fromEngine === ENGINE_TYPE.VLC && vlcPlayer) {
+      try {
+        vlcPlayer.stop();
+      } catch (_e) {}
+    }
+
+    setActiveEngineType(targetEngineType);
+
+    if (targetEngineType === ENGINE_TYPE.VLC) {
+      vlcAttemptsRef.current++;
+      if (vlcPlayer && sanitizedUri) {
+        try {
+          vlcPlayer.source = {
+            uri: sanitizedUri,
+            userAgent: DEFAULT_IPTV_USER_AGENT,
+            vlcOptions: [':network-caching=3000', ':live-caching=2000'],
+            title: title || channel?.name || 'Live Channel',
+          };
+          vlcPlayer.autoPlay = true;
+          vlcPlayer.play();
+        } catch (_vlcErr) {}
+      }
+    } else {
+      if (player && playerSource) {
+        try {
+          if (typeof player.replaceAsync === 'function') {
+            player.replaceAsync(playerSource).then(() => { player.play(); }).catch(() => {});
+          } else {
+            player.replace(playerSource);
+            player.play();
+          }
+        } catch (_natErr) {}
+      }
+    }
+  }, [activeEngineType, player, vlcPlayer, sanitizedUri, playerSource, title, channel, setDebouncedBuffering]);
+
   // Screen brightness management with lifecycle restoration (active in expanded mode)
   const { brightness, setBrightness } = usePlayerBrightness({ enabled: !isMini });
 
@@ -371,6 +465,7 @@ export default function EmbeddedVideoPlayer({
   }, [player]);
 
   // Debounced buffering state manager — eliminates rapid flicker
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const setDebouncedBuffering = useCallback((buffering) => {
     if (bufferTimerRef.current) {
       clearTimeout(bufferTimerRef.current);
@@ -609,6 +704,12 @@ export default function EmbeddedVideoPlayer({
             status: player?.status,
           });
 
+          if (engineMode === ENGINE_MODE.AUTO && activeEngineType === ENGINE_TYPE.NATIVE && vlcAttemptsRef.current < 1) {
+            logPlayerDiagnostic('embeddedStartupTimeoutSwitchingToVlc', { opReqId });
+            switchEngine(ENGINE_TYPE.VLC, ENGINE_SWITCH_REASON.STARTUP_TIMEOUT);
+            return;
+          }
+
           clearAllWatchdogs();
           playerStateRef.current = 'ERROR';
           setPlayerState('ERROR');
@@ -775,6 +876,23 @@ export default function EmbeddedVideoPlayer({
     }
 
     clearAllWatchdogs();
+
+    const isSwitchable = DualPlaybackCoordinator.isSwitchableError(classified);
+    if (
+      engineMode === ENGINE_MODE.AUTO &&
+      activeEngineType === ENGINE_TYPE.NATIVE &&
+      vlcAttemptsRef.current < 1 &&
+      isSwitchable
+    ) {
+      logPlayerDiagnostic('embeddedAutoSwitchingToVlc', {
+        error: classified.message,
+        category: classified.category,
+        opId,
+      });
+      switchEngine(ENGINE_TYPE.VLC, ENGINE_SWITCH_REASON.AUTO_FALLBACK);
+      return;
+    }
+
     if (!fallbackAttemptedRef.current && classified.isFatal) {
       const fallbackUrl = getStreamFallbackUrl(failedUrl, {
         isLive: true,
@@ -2437,16 +2555,20 @@ export default function EmbeddedVideoPlayer({
           pointerEvents="none"
           onLayout={(e) => measureAndLogLayout('EmbeddedVideoPlayer:videoViewport', viewportRef, e.nativeEvent.layout, insets, { mode })}
         />
-        {/* Layer 1: Native Video View — NEVER unmounts, pointerEvents none prevents native touch capture */}
+        {/* Layer 1: Unified Dual Playback Video Surface — NEVER unmounts, pointerEvents none prevents native touch capture */}
         <View
           ref={videoSurfaceRef}
           style={[StyleSheet.absoluteFill, styles.videoSurface]}
           pointerEvents="none"
           onLayout={(e) => measureAndLogLayout('EmbeddedVideoPlayer:videoSurface', videoSurfaceRef, e.nativeEvent.layout, insets, { mode })}
         >
-          <VideoView
+          <UnifiedVideoSurface
             style={StyleSheet.absoluteFill}
-            player={player}
+            activeEngineType={activeEngineType}
+            nativePlayer={player}
+            vlcPlayer={vlcPlayer}
+            contentFit={contentFit}
+            isMini={isMini}
             onFirstFrameRender={handleFirstFrameRender}
             {...videoViewProps}
           />
@@ -2525,6 +2647,9 @@ export default function EmbeddedVideoPlayer({
                 availableSubtitleTracks={availableSubtitleTracks}
                 selectedSubtitleTrack={selectedSubtitleTrack}
                 onSelectSubtitleTrack={handleSelectSubtitleTrack}
+                activeEngineType={activeEngineType}
+                engineMode={engineMode}
+                onOpenEngineModal={!isMini ? () => setShowEngineModal(true) : undefined}
               />
             </View>
           </View>
@@ -2575,6 +2700,11 @@ export default function EmbeddedVideoPlayer({
             canRetry={errorDetails ? errorDetails.canRetry : true}
             onRetry={handleRetry}
             onBack={onClose || onMinimize}
+            onSwitchEngine={() => {
+              const target = activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+              switchEngine(target, ENGINE_SWITCH_REASON.USER_RETRY);
+            }}
+            switchEngineLabel={activeEngineType === ENGINE_TYPE.NATIVE ? 'Try Playing with VLC Engine' : 'Try Playing with Native Engine'}
             isMini={isMini}
             insets={insets}
           />
@@ -2590,6 +2720,24 @@ export default function EmbeddedVideoPlayer({
           setToastMessage(null);
         }}
         bottomOffset={isMini ? 44 : 90}
+      />
+
+      {/* Layer 8: Dual Playback Engine Selection Modal */}
+      <PlaybackEngineModal
+        visible={showEngineModal}
+        activeEngineType={activeEngineType}
+        engineMode={engineMode}
+        onSelectMode={async (mode) => {
+          setEngineMode(mode);
+          try {
+            await writeCache('fox_player_preferred_engine_mode', mode);
+          } catch (_e) {}
+          const target = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+          if (target !== activeEngineType) {
+            switchEngine(target, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
+          }
+        }}
+        onDismiss={() => setShowEngineModal(false)}
       />
     </View>
   );

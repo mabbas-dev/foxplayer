@@ -35,6 +35,8 @@ export default function BrokenVideoView({
   secondaryMessage = 'This video may be temporarily unavailable. Please try again.',
   onRetry,
   onBack,
+  onSwitchEngine = null,
+  switchEngineLabel = null,
   canRetry = true,
   isMini = false,
   style,
@@ -181,6 +183,20 @@ export default function BrokenVideoView({
               accessibilityLabel="Retry video playback"
             >
               <Text style={[styles.retryBtnText, isMini && styles.miniRetryBtnText]}>Retry</Text>
+            </TouchableOpacity>
+          )}
+
+          {onSwitchEngine && (
+            <TouchableOpacity
+              style={[styles.switchEngineBtn, isMini && styles.miniSwitchEngineBtn]}
+              onPress={onSwitchEngine}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Switch playback engine"
+            >
+              <Text style={[styles.switchEngineBtnText, isMini && styles.miniSwitchEngineBtnText]}>
+                {switchEngineLabel || 'Try Alternate Engine'}
+              </Text>
             </TouchableOpacity>
           )}
 
@@ -408,6 +424,34 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     letterSpacing: 0.3,
     textAlign: 'center',
+  },
+  switchEngineBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 107, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: Colors.brand.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
+    minWidth: 110,
+  },
+  miniSwitchEngineBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 6,
+    minWidth: 70,
+  },
+  switchEngineBtnText: {
+    color: Colors.brand.primary,
+    fontWeight: '700',
+    fontSize: 12.5,
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  miniSwitchEngineBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
 });
 

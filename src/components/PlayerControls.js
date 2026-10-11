@@ -87,6 +87,10 @@ export default function PlayerControls({
   availableSubtitleTracks = [],
   selectedSubtitleTrack = null,
   onSelectSubtitleTrack = null,
+  // Dual Engine Controls
+  activeEngineType = 'NATIVE',
+  engineMode = 'AUTO',
+  onOpenEngineModal = null,
 }) {
 
   const isLiveStream = isLive || type === 'live';
@@ -414,6 +418,23 @@ export default function PlayerControls({
                   >
                     <AspectRatioIcon size={13} color={Colors.brand.primary} />
                     <Text style={styles.actionPillText}>{contentFit.toUpperCase()}</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {onOpenEngineModal ? (
+                  <TouchableOpacity
+                    style={[styles.actionPill, activeEngineType === 'VLC' && { borderColor: 'rgba(255, 107, 0, 0.4)', backgroundColor: 'rgba(255, 107, 0, 0.14)' }]}
+                    onPress={(e) => {
+                      e?.stopPropagation?.();
+                      onOpenEngineModal();
+                    }}
+                    activeOpacity={0.75}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="Playback engine settings"
+                  >
+                    <Text style={[styles.actionPillText, { color: Colors.brand.primary, fontWeight: '800' }]}>
+                      {activeEngineType === 'VLC' ? 'VLC' : (engineMode === 'AUTO' ? 'AUTO' : 'NATIVE')}
+                    </Text>
                   </TouchableOpacity>
                 ) : null}
 

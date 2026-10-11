@@ -95,3 +95,52 @@ export const PROVIDER_TYPE = {
  * Error categories mapped from native players.
  */
 export const PLAYBACK_ERROR = ERROR_CLASSIFICATION;
+
+/**
+ * Dual Playback Engine Types.
+ */
+export const ENGINE_TYPE = {
+  NATIVE: 'NATIVE', // AndroidX Media3 (ExoPlayer) on Android, AVFoundation (AVPlayer) on iOS
+  VLC: 'VLC',       // libVLC (rn-vlc-plyr)
+};
+
+/**
+ * User Playback Engine Modes.
+ */
+export const ENGINE_MODE = {
+  AUTO: 'AUTO',     // Automatic primary-to-fallback switching on recoverable failure
+  NATIVE: 'NATIVE', // Force native engine only
+  VLC: 'VLC',       // Force VLC engine only
+};
+
+/**
+ * Engine Lifecycle Status.
+ */
+export const ENGINE_STATUS = {
+  IDLE: 'IDLE',
+  STARTING: 'STARTING',
+  ACTIVE: 'ACTIVE',
+  SWITCHING: 'SWITCHING',
+  FAILED: 'FAILED',
+};
+
+/**
+ * Reasons triggering engine switch.
+ */
+export const ENGINE_SWITCH_REASON = {
+  STARTUP_TIMEOUT: 'STARTUP_TIMEOUT',
+  FORMAT_UNSUPPORTED: 'FORMAT_UNSUPPORTED',
+  DEMUXER_ERROR: 'DEMUXER_ERROR',
+  DECODER_ERROR: 'DECODER_ERROR',
+  PLAYBACK_STALLED: 'PLAYBACK_STALLED',
+  MANUAL_SWITCH: 'MANUAL_SWITCH',
+};
+
+/**
+ * Human-readable engine labels for UI diagnostics and settings.
+ */
+export const ENGINE_LABELS = {
+  NATIVE: 'Native Player (ExoPlayer / AVPlayer)',
+  VLC: 'VLC Player (libVLC Engine)',
+};
+

@@ -49,9 +49,21 @@ import {
 } from '../utils/playerConfig.js';
 import { PlaybackController } from '../playback/PlaybackController.js';
 import { getPlatformPlayer } from '../playback/PlatformPlayer.js';
-import { PLAYBACK_STATE } from '../playback/playbackTypes.js';
+import { PLAYBACK_STATE, ENGINE_TYPE, ENGINE_MODE, ENGINE_SWITCH_REASON, ENGINE_LABELS } from '../playback/playbackTypes.js';
+import { DualPlaybackCoordinator } from '../playback/engines/DualPlaybackCoordinator.js';
+import UnifiedVideoSurface from '../playback/components/UnifiedVideoSurface.js';
+import PlaybackEngineModal from '../components/PlaybackEngineModal.js';
+import { readCache, writeCache } from '../storage/cacheStorage.js';
 import { safeBack } from '../utils/navigation';
 import { measureAndLogLayout } from '../utils/layoutDiagnostics';
+
+let useVlcPlayerHook = null;
+try {
+  const vlcModule = require('rn-vlc-plyr');
+  if (vlcModule && typeof vlcModule.useVlcPlayer === 'function') {
+    useVlcPlayerHook = vlcModule.useVlcPlayer;
+  }
+} catch (_e) {}
 
 const SPEEDS    = [1.0, 1.25, 1.5, 2.0];
 const FIT_MODES = ['contain', 'cover', 'fill'];
@@ -66,6 +78,14 @@ export default function PlayerScreen() {
   const videoSurfaceRef = useRef(null);
   const unifiedOverlayRef = useRef(null);
   const controlsContainerRef = useRef(null);
+
+  // Dual Playback Engine state
+  const [activeEngineType, setActiveEngineType]     = useState(ENGINE_TYPE.NATIVE);
+  const [engineMode, setEngineMode]                 = useState(ENGINE_MODE.AUTO);
+  const [showEngineModal, setShowEngineModal]       = useState(false);
+  const [isSwitchingEngine, setIsSwitchingEngine]   = useState(false);
+  const vlcAttemptsRef                              = useRef(0);
+  const nativeAttemptsRef                           = useRef(0);
 
   // State machine: 'LOADING' | 'BUFFERING' | 'PLAYING' | 'PAUSED' | 'ERROR'
   const [playerState, setPlayerState]               = useState('LOADING');
@@ -227,6 +247,99 @@ export default function PlayerScreen() {
       p.bufferOptions = opts.bufferOptions;
     }
   });
+
+  // Initialize VLC player hook if native module is linked
+  let vlcPlayer = null;
+  if (useVlcPlayerHook) {
+    try {
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      vlcPlayer = useVlcPlayerHook(undefined);
+    } catch (_e) {
+      vlcPlayer = null;
+    }
+  }
+
+  // Load persisted engine preference on mount
+  useEffect(() => {
+    readCache('fox_player_preferred_engine_mode').then((saved) => {
+      if (saved === ENGINE_MODE.AUTO || saved === ENGINE_MODE.NATIVE || saved === ENGINE_MODE.VLC) {
+        setEngineMode(saved);
+        if (saved === ENGINE_MODE.VLC) {
+          setActiveEngineType(ENGINE_TYPE.VLC);
+          vlcAttemptsRef.current = 1;
+        }
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Seamless Dual Engine Switcher
+  const switchEngine = useCallback(async (targetEngineType, reason = ENGINE_SWITCH_REASON.MANUAL_SWITCH) => {
+    if (activeEngineType === targetEngineType && playerStateRef.current === 'PLAYING') return;
+    setIsSwitchingEngine(true);
+    setDebouncedBuffering(true);
+
+    const fromEngine = activeEngineType;
+    const currentPos = currentTimeRef.current || 0;
+
+    logPlayerDiagnostic('engineSwitch', { from: fromEngine, to: targetEngineType, reason });
+
+    // Stop and silence old engine completely to prevent dual audio
+    if (fromEngine === ENGINE_TYPE.NATIVE) {
+      try {
+        player.pause();
+        if (typeof player.replaceAsync === 'function') {
+          player.replaceAsync(null).catch(() => {});
+        }
+      } catch (_e) {}
+    } else if (fromEngine === ENGINE_TYPE.VLC && vlcPlayer) {
+      try {
+        vlcPlayer.stop();
+      } catch (_e) {}
+    }
+
+    setActiveEngineType(targetEngineType);
+
+    if (targetEngineType === ENGINE_TYPE.VLC) {
+      vlcAttemptsRef.current++;
+      if (vlcPlayer && url) {
+        try {
+          const vlcSource = {
+            uri: url,
+            userAgent: DEFAULT_IPTV_USER_AGENT,
+            vlcOptions: [':network-caching=3000', ':live-caching=2000'],
+            title: title || 'Live Stream',
+          };
+          vlcPlayer.source = vlcSource;
+          vlcPlayer.autoPlay = true;
+          vlcPlayer.play();
+          setToastMessage('Switched to VLC Player Engine');
+          setShowToast(true);
+          setTimeout(() => setShowToast(false), 2200);
+        } catch (_vlcErr) {
+          logPlayerDiagnostic('vlcStartError', { error: _vlcErr.message });
+        }
+      }
+    } else {
+      nativeAttemptsRef.current++;
+      if (player && playerSource) {
+        try {
+          if (typeof player.replaceAsync === 'function') {
+            player.replaceAsync(playerSource).then(() => {
+              player.play();
+            }).catch(() => {});
+          } else {
+            player.replace(playerSource);
+            player.play();
+          }
+          setToastMessage('Switched to Native Player Engine');
+          setShowToast(true);
+          setTimeout(() => setShowToast(false), 2200);
+        } catch (_natErr) {}
+      }
+    }
+
+    setIsSwitchingEngine(false);
+  }, [activeEngineType, player, vlcPlayer, url, playerSource, title, setDebouncedBuffering]);
 
   // Screen brightness management with lifecycle restoration
   const { brightness, setBrightness } = usePlayerBrightness();
@@ -450,6 +563,24 @@ export default function PlayerScreen() {
     if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
     if (verifyPlaybackRef.current) clearTimeout(verifyPlaybackRef.current);
 
+    // Automatic Dual-Engine Fallback:
+    // If native engine failed on a recoverable/switchable error, switch to VLC engine automatically
+    const isSwitchable = DualPlaybackCoordinator.isSwitchableError(classified);
+    if (
+      engineMode === ENGINE_MODE.AUTO &&
+      activeEngineType === ENGINE_TYPE.NATIVE &&
+      vlcAttemptsRef.current < 1 &&
+      isSwitchable
+    ) {
+      logPlayerDiagnostic('autoSwitchingToVlcEngine', {
+        error: classified.message,
+        category: classified.category,
+        opId,
+      });
+      switchEngine(ENGINE_TYPE.VLC, ENGINE_SWITCH_REASON.AUTO_FALLBACK);
+      return;
+    }
+
     if (!fallbackAttemptedRef.current && classified.isFatal) {
       const fallbackUrl = getStreamFallbackUrl(failedUrl, {
         isLive,
@@ -499,7 +630,7 @@ export default function PlayerScreen() {
     }
 
     triggerErrorState(err);
-  }, [isLive, playerSource, triggerErrorState, type, player]);
+  }, [isLive, playerSource, triggerErrorState, type, player, engineMode, activeEngineType, switchEngine, setDebouncedBuffering]);
 
   // Confirm active playback and clear all buffering/loading indicators
   const confirmPlaybackActive = useCallback((opReqId = null) => {
@@ -642,20 +773,22 @@ export default function PlayerScreen() {
     setIsBufferingUI(true);
     timingRef.current.assigned = Date.now();
 
-    // Connect watchdog: diagnostic telemetry only — NEVER triggers a false fatal error or popup
+    // Connect watchdog: 12s configurable startup timeout with automatic VLC fallback
     if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
     loadTimeoutRef.current = setTimeout(() => {
       if (reqId === requestCounterRef.current && (playerStateRef.current === 'LOADING' || playerStateRef.current === 'BUFFERING' || playerStateRef.current === 'RETRYING')) {
         logPlayerDiagnostic('playbackConnectSlow', {
           reqId,
           isLive,
-          elapsedMs: isLive ? 15000 : 12000,
+          elapsedMs: 12000,
           platform: Platform.OS,
-          decisionReason: 'Suppressed: slow connection kept in LOADING/BUFFERING state without fatal popup',
         });
-        // Stream connection is taking longer than expected; keep buffering indicator active and do NOT stop playback
+        if (engineMode === ENGINE_MODE.AUTO && activeEngineType === ENGINE_TYPE.NATIVE && vlcAttemptsRef.current < 1) {
+          logPlayerDiagnostic('startupTimeoutSwitchingToVLC', { reqId, platform: Platform.OS });
+          switchEngine(ENGINE_TYPE.VLC, ENGINE_SWITCH_REASON.STARTUP_TIMEOUT);
+        }
       }
-    }, isLive ? 15000 : 12000);
+    }, 12000);
 
     try {
       const now = Date.now();
@@ -1128,7 +1261,90 @@ export default function PlayerScreen() {
     };
   }, [player, triggerErrorState, setDebouncedBuffering, type, handleFallbackOrError, isLive, initiateAutoPlayback, confirmPlaybackActive]);
 
+  // Track status and playback events for VLC engine
+  useEffect(() => {
+    if (!vlcPlayer) return;
+
+    const subs = [];
+
+    if (typeof vlcPlayer.addOnStatusChangeListener === 'function') {
+      const sub = vlcPlayer.addOnStatusChangeListener((status) => {
+        if (activeEngineType !== ENGINE_TYPE.VLC) return;
+        logPlayerDiagnostic('vlcStatusChange', { status });
+        if (status === 'playing') {
+          confirmPlaybackActive(requestCounterRef.current);
+          setErrorMessage(null);
+          setShowToast(false);
+        } else if (status === 'buffering' || status === 'loading') {
+          setDebouncedBuffering(true);
+        } else if (status === 'paused') {
+          playerStateRef.current = 'PAUSED';
+          setPlayerState('PAUSED');
+        } else if (status === 'stopped' || status === 'ended') {
+          if (!userPausedRef.current && playerStateRef.current === 'PLAYING') {
+            playerStateRef.current = 'PAUSED';
+            setPlayerState('PAUSED');
+          }
+        }
+      });
+      if (sub?.remove) subs.push(() => sub.remove());
+    }
+
+    if (typeof vlcPlayer.addOnTimeUpdateListener === 'function') {
+      const sub = vlcPlayer.addOnTimeUpdateListener((event) => {
+        if (activeEngineType !== ENGINE_TYPE.VLC) return;
+        const curSec = (event.currentTime || 0) / 1000;
+        const durSec = (event.duration || 0) / 1000;
+        if (curSec > 0 && !hasEverPlayedRef.current) {
+          confirmPlaybackActive(requestCounterRef.current);
+        }
+        if (!isSeekingRef.current) {
+          setCurrentTime(curSec);
+        }
+        if (!isLive && durSec > 0) {
+          setDuration(durSec);
+        }
+      });
+      if (sub?.remove) subs.push(() => sub.remove());
+    }
+
+    if (typeof vlcPlayer.addOnTracksChangeListener === 'function') {
+      const sub = vlcPlayer.addOnTracksChangeListener((tracks) => {
+        if (activeEngineType !== ENGINE_TYPE.VLC) return;
+        if (tracks?.audioTracks) setAvailableAudioTracks(tracks.audioTracks);
+        if (tracks?.subtitleTracks) setAvailableSubtitleTracks(tracks.subtitleTracks);
+        if (tracks?.selectedAudioTrack) setSelectedAudioTrack(tracks.selectedAudioTrack);
+        if (tracks?.selectedSubtitleTrack) setSelectedSubtitleTrack(tracks.selectedSubtitleTrack);
+      });
+      if (sub?.remove) subs.push(() => sub.remove());
+    }
+
+    if (typeof vlcPlayer.addOnErrorListener === 'function') {
+      const sub = vlcPlayer.addOnErrorListener((err) => {
+        if (activeEngineType !== ENGINE_TYPE.VLC) return;
+        logPlayerDiagnostic('vlcPlaybackError', { error: err });
+        triggerErrorState(new Error(err?.message || 'VLC engine playback failed. Both engines failed.'));
+      });
+      if (sub?.remove) subs.push(() => sub.remove());
+    }
+
+    return () => {
+      subs.forEach((unsub) => {
+        try { unsub(); } catch (_e) {}
+      });
+    };
+  }, [vlcPlayer, activeEngineType, confirmPlaybackActive, setDebouncedBuffering, isLive, triggerErrorState]);
+
   const handleSelectAudioTrack = useCallback((track) => {
+    if (activeEngineType === ENGINE_TYPE.VLC && vlcPlayer) {
+      try {
+        if (typeof vlcPlayer.selectAudioTrack === 'function') {
+          vlcPlayer.selectAudioTrack(track?.id ?? track);
+        }
+        setSelectedAudioTrack(track);
+      } catch (err) {}
+      return;
+    }
     if (!player) return;
     try {
       player.audioTrack = track;
@@ -1137,9 +1353,18 @@ export default function PlayerScreen() {
     } catch (err) {
       logPlayerDiagnostic('selectAudioTrackError', { error: err?.message });
     }
-  }, [player]);
+  }, [player, activeEngineType, vlcPlayer]);
 
   const handleSelectSubtitleTrack = useCallback((track) => {
+    if (activeEngineType === ENGINE_TYPE.VLC && vlcPlayer) {
+      try {
+        if (typeof vlcPlayer.selectSubtitleTrack === 'function') {
+          vlcPlayer.selectSubtitleTrack(track?.id ?? track);
+        }
+        setSelectedSubtitleTrack(track);
+      } catch (err) {}
+      return;
+    }
     if (!player) return;
     try {
       player.subtitleTrack = track;
@@ -1148,7 +1373,7 @@ export default function PlayerScreen() {
     } catch (err) {
       logPlayerDiagnostic('selectSubtitleTrackError', { error: err?.message });
     }
-  }, [player]);
+  }, [player, activeEngineType, vlcPlayer]);
 
   const isGestureActiveRef = useRef(false);
   const controlsVisibleRef = useRef(controlsVisible);
@@ -1348,6 +1573,18 @@ export default function PlayerScreen() {
         wasPlayingBeforeSeekRef.current = wasPlaying;
       }
 
+      if (activeEngineType === ENGINE_TYPE.VLC && vlcPlayer) {
+        try {
+          if (typeof vlcPlayer.seekTo === 'function') {
+            vlcPlayer.seekTo(safeTime * 1000);
+          } else if (typeof vlcPlayer.setTime === 'function') {
+            vlcPlayer.setTime(safeTime * 1000);
+          }
+        } catch (_e) {}
+        setCurrentTime(safeTime);
+        return;
+      }
+
       // 1. Immediately pause native player so old video/audio NEVER continues playing
       try {
         player.pause();
@@ -1533,10 +1770,34 @@ export default function PlayerScreen() {
     userPausedRef.current = true;
     playbackIntentRef.current = 'PAUSED';
     try { player?.pause(); } catch (_e) {}
+    try { vlcPlayer?.pause(); vlcPlayer?.stop(); } catch (_e) {}
     safeBack(router);
-  }, [router, player]);
+  }, [router, player, vlcPlayer]);
 
   const togglePlay = useCallback(() => {
+    if (activeEngineType === ENGINE_TYPE.VLC && vlcPlayer) {
+      if (isTogglingPlayRef.current) return;
+      isTogglingPlayRef.current = true;
+      setTimeout(() => { isTogglingPlayRef.current = false; }, 250);
+
+      const isCurrentlyPlaying = playerState === 'PLAYING';
+      if (isCurrentlyPlaying) {
+        userPausedRef.current = true;
+        playbackIntentRef.current = 'PAUSED';
+        try { vlcPlayer.pause(); } catch (_e) {}
+        playerStateRef.current = 'PAUSED';
+        setPlayerState('PAUSED');
+      } else {
+        userPausedRef.current = false;
+        playbackIntentRef.current = 'PLAYING';
+        try { vlcPlayer.play(); } catch (_e) {}
+        playerStateRef.current = 'PLAYING';
+        setPlayerState('PLAYING');
+      }
+      resetHideTimer();
+      return;
+    }
+
     if (!player) return;
     if (isTogglingPlayRef.current) return;
     isTogglingPlayRef.current = true;
@@ -1682,16 +1943,20 @@ export default function PlayerScreen() {
           pointerEvents="none"
           onLayout={(e) => measureAndLogLayout('PlayerScreen:videoViewport', viewportRef, e.nativeEvent.layout, insets)}
         />
-        {/* Layer 1: Native Video View */}
+        {/* Layer 1: Unified Dual Playback Video Surface */}
         <View
           ref={videoSurfaceRef}
           style={[StyleSheet.absoluteFill, styles.videoSurface]}
           pointerEvents="none"
           onLayout={(e) => measureAndLogLayout('PlayerScreen:videoSurface', videoSurfaceRef, e.nativeEvent.layout, insets)}
         >
-          <VideoView
+          <UnifiedVideoSurface
             style={StyleSheet.absoluteFill}
-            player={player}
+            activeEngineType={activeEngineType}
+            nativePlayer={player}
+            vlcPlayer={vlcPlayer}
+            contentFit={contentFit}
+            isMini={false}
             allowsPictureInPicture
             onFirstFrameRender={handleFirstFrameRender}
             {...videoViewProps}
@@ -1768,6 +2033,9 @@ export default function PlayerScreen() {
                 availableSubtitleTracks={availableSubtitleTracks}
                 selectedSubtitleTrack={selectedSubtitleTrack}
                 onSelectSubtitleTrack={handleSelectSubtitleTrack}
+                activeEngineType={activeEngineType}
+                engineMode={engineMode}
+                onOpenEngineModal={() => setShowEngineModal(true)}
               />
             </View>
           </View>
@@ -1818,6 +2086,11 @@ export default function PlayerScreen() {
             canRetry={errorDetails ? errorDetails.canRetry : true}
             onRetry={handleRetry}
             onBack={handleBack}
+            onSwitchEngine={() => {
+              const target = activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+              switchEngine(target, ENGINE_SWITCH_REASON.USER_RETRY);
+            }}
+            switchEngineLabel={activeEngineType === ENGINE_TYPE.NATIVE ? 'Try Playing with VLC Engine' : 'Try Playing with Native Engine'}
             isMini={false}
             insets={insets}
           />
@@ -1837,6 +2110,24 @@ export default function PlayerScreen() {
 
       {/* Layer 8: Global Toast notifications */}
       <GlobalToast bottomOffset={controlsVisible ? 110 : 36} />
+
+      {/* Layer 9: Dual Playback Engine Selection Modal */}
+      <PlaybackEngineModal
+        visible={showEngineModal}
+        activeEngineType={activeEngineType}
+        engineMode={engineMode}
+        onSelectMode={async (mode) => {
+          setEngineMode(mode);
+          try {
+            await writeCache('fox_player_preferred_engine_mode', mode);
+          } catch (_e) {}
+          const target = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+          if (target !== activeEngineType) {
+            switchEngine(target, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
+          }
+        }}
+        onDismiss={() => setShowEngineModal(false)}
+      />
     </View>
   );
 }
