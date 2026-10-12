@@ -131,11 +131,12 @@ export function detectContentType(url, { type = '', extension = '', platform = P
   if (
     cleanUrl.endsWith('.mp4') ||
     cleanUrl.endsWith('.mov') ||
+    cleanUrl.endsWith('.m4v') ||
     cleanUrl.endsWith('.mkv') ||
     cleanUrl.endsWith('.avi') ||
     cleanUrl.endsWith('.webm') ||
     cleanUrl.endsWith('.flv') ||
-    ['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv'].includes(ext)
+    ['mp4', 'mov', 'm4v', 'mkv', 'avi', 'webm', 'flv'].includes(ext)
   ) {
     return 'progressive';
   }
@@ -406,8 +407,12 @@ export function normalizePlaybackSource(content, options = {}) {
   });
 
   // On iOS AVPlayer, explicitly specify 'hls' when URL is an HLS manifest (.m3u8) or live channel
-  if (platformUri.includes('.m3u8')) {
-    contentType = 'hls';
+  if (targetPlatform === 'ios') {
+    if (platformUri.includes('.m3u8') || resolved.isLive) {
+      contentType = 'hls';
+    } else if (platformUri.includes('.mp4') || platformUri.includes('.mov') || platformUri.includes('.m4v')) {
+      contentType = 'progressive';
+    }
   }
 
   // Derive provider type

@@ -343,9 +343,6 @@ export default function EmbeddedVideoPlayer({
     if (fromEngine === ENGINE_TYPE.NATIVE && player) {
       try {
         player.pause();
-        if (typeof player.replaceAsync === 'function') {
-          player.replaceAsync(null).catch(() => {});
-        }
       } catch (_e) {}
     } else if (fromEngine === ENGINE_TYPE.VLC && vlcPlayer) {
       try {
@@ -353,33 +350,37 @@ export default function EmbeddedVideoPlayer({
       } catch (_e) {}
     }
 
-    setActiveEngineType(targetEngineType);
+    try {
+      setActiveEngineType(targetEngineType);
 
-    if (targetEngineType === ENGINE_TYPE.VLC) {
-      vlcAttemptsRef.current++;
-      if (vlcPlayer && sanitizedUri) {
-        try {
-          vlcPlayer.source = {
-            uri: sanitizedUri,
-            userAgent: DEFAULT_IPTV_USER_AGENT,
-            vlcOptions: [':network-caching=3000', ':live-caching=2000'],
-            title: title || channel?.name || 'Live Channel',
-          };
-          vlcPlayer.autoPlay = true;
-          vlcPlayer.play();
-        } catch (_vlcErr) {}
+      if (targetEngineType === ENGINE_TYPE.VLC) {
+        vlcAttemptsRef.current++;
+        if (vlcPlayer && sanitizedUri) {
+          try {
+            vlcPlayer.source = {
+              uri: sanitizedUri,
+              userAgent: DEFAULT_IPTV_USER_AGENT,
+              vlcOptions: [':network-caching=3000', ':live-caching=2000'],
+              title: title || channel?.name || 'Live Channel',
+            };
+            vlcPlayer.autoPlay = true;
+            vlcPlayer.play();
+          } catch (_vlcErr) {}
+        }
+      } else {
+        if (player && playerSource) {
+          try {
+            if (typeof player.replaceAsync === 'function') {
+              player.replaceAsync(playerSource).then(() => { player.play(); }).catch(() => {});
+            } else {
+              player.replace(playerSource);
+              player.play();
+            }
+          } catch (_natErr) {}
+        }
       }
-    } else {
-      if (player && playerSource) {
-        try {
-          if (typeof player.replaceAsync === 'function') {
-            player.replaceAsync(playerSource).then(() => { player.play(); }).catch(() => {});
-          } else {
-            player.replace(playerSource);
-            player.play();
-          }
-        } catch (_natErr) {}
-      }
+    } catch (_switchErr) {
+      logPlayerDiagnostic('embeddedEngineSwitchError', { error: _switchErr?.message });
     }
   }, [activeEngineType, player, vlcPlayer, sanitizedUri, playerSource, title, channel, setDebouncedBuffering]);
 
@@ -2711,10 +2712,16 @@ export default function EmbeddedVideoPlayer({
             canRetry={errorDetails ? errorDetails.canRetry : true}
             onRetry={handleRetry}
             onBack={onClose || onMinimize}
-            onSwitchEngine={() => {
-              const target = activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
-              switchEngine(target, ENGINE_SWITCH_REASON.USER_RETRY);
-            }}
+            onSwitchEngine={
+              (activeEngineType === ENGINE_TYPE.VLC || probeVlcNativeAvailability().available)
+                ? () => {
+                    try {
+                      const target = activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+                      switchEngine(target, ENGINE_SWITCH_REASON.USER_RETRY);
+                    } catch (_e) {}
+                  }
+                : null
+            }
             switchEngineLabel={activeEngineType === ENGINE_TYPE.NATIVE ? 'Try Playing with VLC Engine' : 'Try Playing with Native Engine'}
             isMini={isMini}
             insets={insets}
@@ -2739,12 +2746,19 @@ export default function EmbeddedVideoPlayer({
         activeEngineType={activeEngineType}
         engineMode={engineMode}
         onSelectMode={async (mode) => {
-          setEngineMode(mode);
-          await savePlayerSettings({ preferredEngine: mode });
-          const target = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
-          if (target !== activeEngineType) {
-            switchEngine(target, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
-          }
+          try {
+            setEngineMode(mode);
+            await savePlayerSettings({ preferredEngine: mode });
+            const target = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+            if (target !== activeEngineType) {
+              await switchEngine(target, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
+            }
+          } catch (_e) {}
+        }}
+        onSwitchEngine={async (targetEngine) => {
+          try {
+            await switchEngine(targetEngine, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
+          } catch (_e) {}
         }}
         onClose={() => setShowEngineModal(false)}
         onDismiss={() => setShowEngineModal(false)}

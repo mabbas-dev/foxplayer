@@ -51,15 +51,17 @@ export default function PlaybackEngineModal({
       visible={visible}
       transparent
       animationType="fade"
+      supportedOrientations={['portrait', 'portrait-upside-down', 'landscape', 'landscape-left', 'landscape-right']}
+      statusBarTranslucent={true}
       onRequestClose={handleClose}
     >
       <TouchableWithoutFeedback onPress={handleClose}>
         <View style={styles.backdrop}>
-          <TouchableWithoutFeedback>
+          <TouchableWithoutFeedback onPress={(e) => e?.stopPropagation?.()}>
             <View style={styles.modalCard}>
               {/* Header */}
               <View style={styles.header}>
-                <View>
+                <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={styles.title}>Playback Engine</Text>
                   <Text style={styles.subtitle}>Select video decoding and streaming engine</Text>
                 </View>
@@ -85,7 +87,11 @@ export default function PlaybackEngineModal({
               </View>
 
               {/* Modes Selection */}
-              <ScrollView style={styles.modesList} contentContainerStyle={{ gap: 10 }}>
+              <ScrollView
+                style={styles.modesList}
+                contentContainerStyle={{ gap: 10, paddingBottom: 4 }}
+                showsVerticalScrollIndicator={false}
+              >
                 {availableEngines.map((item) => {
                   const isSelected = engineMode === item.id;
                   const isDisabled = !item.isAvailable;
@@ -100,9 +106,12 @@ export default function PlaybackEngineModal({
                       ]}
                       disabled={isDisabled}
                       onPress={() => {
-                        if (typeof onSelectMode === 'function') {
-                          onSelectMode(item.id);
-                        }
+                        try {
+                          if (typeof onSelectMode === 'function') {
+                            onSelectMode(item.id);
+                          }
+                          handleClose();
+                        } catch (_err) {}
                       }}
                       activeOpacity={0.8}
                     >
@@ -161,9 +170,12 @@ export default function PlaybackEngineModal({
                     style={[styles.quickSwitchBtn, isSwitching && { opacity: 0.6 }]}
                     disabled={isSwitching}
                     onPress={() => {
-                      const nextEngine =
-                        activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
-                      onSwitchEngine(nextEngine);
+                      try {
+                        const nextEngine =
+                          activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+                        onSwitchEngine(nextEngine);
+                        handleClose();
+                      } catch (_err) {}
                     }}
                     activeOpacity={0.8}
                   >
@@ -193,12 +205,13 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: '100%',
-    maxWidth: 460,
+    maxWidth: 480,
+    maxHeight: '94%',
     backgroundColor: '#16161A',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    padding: 20,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.4,
@@ -209,17 +222,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   title: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
   subtitle: {
     color: '#8A92A6',
-    fontSize: 12,
+    fontSize: 11.5,
     marginTop: 2,
   },
   closeBtn: {
@@ -234,10 +247,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#0F1015',
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 10,
-    marginBottom: 16,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
   },
@@ -269,7 +282,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   modesList: {
-    maxHeight: 320,
+    maxHeight: 240,
   },
   modeItem: {
     flexDirection: 'row',

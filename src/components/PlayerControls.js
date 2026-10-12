@@ -426,7 +426,9 @@ export default function PlayerControls({
                     style={[styles.actionPill, activeEngineType === 'VLC' && { borderColor: 'rgba(255, 107, 0, 0.4)', backgroundColor: 'rgba(255, 107, 0, 0.14)' }]}
                     onPress={(e) => {
                       e?.stopPropagation?.();
-                      onOpenEngineModal();
+                      try {
+                        onOpenEngineModal();
+                      } catch (_e) {}
                     }}
                     activeOpacity={0.75}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

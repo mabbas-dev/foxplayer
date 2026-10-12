@@ -185,9 +185,20 @@ export function prepareStreamUrlForPlatform(
   // Apple AVPlayer cannot decode progressive raw MPEG-TS (.ts) over plain HTTP (Code=-11850 / -12939).
   // For Xtream Codes and IPTV live streams, requesting .m3u8 directly targets the server's native HLS endpoint.
   if (platform === 'ios' && isLive) {
+    // 1. Raw .ts rewrite -> .m3u8
     if (/\.ts(\?.*)?$/i.test(sanitized)) {
       sanitized = sanitized.replace(/\.ts(\?.*)?$/i, '.m3u8$1');
-    } else if (sanitized.includes('/live/') && !sanitized.includes('.m3u8') && !sanitized.includes('.mp4')) {
+    }
+    // 2. Query param output=ts -> output=m3u8
+    if (sanitized.includes('output=ts')) {
+      sanitized = sanitized.replace(/output=ts/gi, 'output=m3u8');
+    }
+    // 3. DASH .mpd on iOS live -> .m3u8
+    if (/\.mpd(\?.*)?$/i.test(sanitized)) {
+      sanitized = sanitized.replace(/manifest\.mpd/gi, 'manifest.m3u8').replace(/\.mpd(\?.*)?$/i, '.m3u8$1');
+    }
+    // 4. Extensionless live streams (e.g. /live/user/pass/123 or port-based channel without extension)
+    if (sanitized.includes('/live/') && !sanitized.includes('.m3u8') && !sanitized.includes('.mp4')) {
       const queryIdx = sanitized.indexOf('?');
       if (queryIdx !== -1) {
         const pathPart = sanitized.slice(0, queryIdx);
@@ -201,10 +212,18 @@ export function prepareStreamUrlForPlatform(
 
   // On iOS, Apple AVPlayer cannot decode or open MKV (.mkv) container files (Code=-11828 / -12847 "This media format is not supported").
   // Xtream Codes IPTV servers natively provide MP4 container streams for movies and series when requested with .mp4.
-  // When playing on iOS, transform .mkv to .mp4 for movies/series VOD URLs so AVPlayer can natively open the container.
-  if (platform === 'ios' && (/\.mkv(\?.*)?$/i.test(sanitized) || extension === 'mkv')) {
-    if (sanitized.includes('/movie/') || sanitized.includes('/series/') || type === 'movie' || type === 'series' || type === 'vod') {
-      sanitized = sanitized.replace(/\.mkv(\?.*)?$/i, '.mp4$1');
+  // When playing on iOS, transform .mkv, .avi, .flv, .webm, .wmv to .mp4 for VOD URLs so AVPlayer can natively open the container.
+  if (platform === 'ios') {
+    const isVod = !isLive || type === 'movie' || type === 'series' || type === 'vod' || sanitized.includes('/movie/') || sanitized.includes('/series/');
+
+    if (isVod) {
+      if (/\.mkv(\?.*)?$/i.test(sanitized) || extension === 'mkv') {
+        sanitized = sanitized.replace(/\.mkv(\?.*)?$/i, '.mp4$1');
+      } else if (/\.(avi|flv|webm|wmv)(\?.*)?$/i.test(sanitized)) {
+        sanitized = sanitized.replace(/\.(avi|flv|webm|wmv)(\?.*)?$/i, '.mp4$2');
+      } else if (/\.mpd(\?.*)?$/i.test(sanitized)) {
+        sanitized = sanitized.replace(/\.mpd(\?.*)?$/i, '.m3u8$1');
+      }
     }
   }
 
@@ -232,6 +251,9 @@ export function getStreamFallbackUrl(currentUrl, { isLive = true, platform = Pla
     if (/\.ts(\?.*)?$/i.test(currentUrl)) {
       return currentUrl.replace(/\.ts(\?.*)?$/i, '.m3u8$1');
     }
+    if (/\.mpd(\?.*)?$/i.test(currentUrl)) {
+      return currentUrl.replace(/\.mpd(\?.*)?$/i, '.m3u8$1');
+    }
   } else if (platform === 'ios') {
     // On iOS, if MKV fails, try MP4
     if (/\.mkv(\?.*)?$/i.test(currentUrl)) {
@@ -241,10 +263,17 @@ export function getStreamFallbackUrl(currentUrl, { isLive = true, platform = Pla
     if (/\.mp4(\?.*)?$/i.test(currentUrl)) {
       return currentUrl.replace(/\.mp4(\?.*)?$/i, '.m3u8$1');
     }
+    // If AVI / FLV fails on iOS, try MP4
+    if (/\.(avi|flv|webm|wmv)(\?.*)?$/i.test(currentUrl)) {
+      return currentUrl.replace(/\.(avi|flv|webm|wmv)(\?.*)?$/i, '.mp4$2');
+    }
   } else {
     // On Android, if .mp4 fails, try .mkv
     if (/\.mp4(\?.*)?$/i.test(currentUrl)) {
       return currentUrl.replace(/\.mp4(\?.*)?$/i, '.mkv$1');
+    }
+    if (/\.mkv(\?.*)?$/i.test(currentUrl)) {
+      return currentUrl.replace(/\.mkv(\?.*)?$/i, '.mp4$1');
     }
   }
 

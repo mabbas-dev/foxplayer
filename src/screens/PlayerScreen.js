@@ -308,17 +308,12 @@ export default function PlayerScreen() {
     setDebouncedBuffering(true);
 
     const fromEngine = activeEngineType;
-    const currentPos = currentTimeRef.current || 0;
-
     logPlayerDiagnostic('engineSwitch', { from: fromEngine, to: targetEngineType, reason });
 
     // Stop and silence old engine completely to prevent dual audio
-    if (fromEngine === ENGINE_TYPE.NATIVE) {
+    if (fromEngine === ENGINE_TYPE.NATIVE && player) {
       try {
         player.pause();
-        if (typeof player.replaceAsync === 'function') {
-          player.replaceAsync(null).catch(() => {});
-        }
       } catch (_e) {}
     } else if (fromEngine === ENGINE_TYPE.VLC && vlcPlayer) {
       try {
@@ -326,48 +321,52 @@ export default function PlayerScreen() {
       } catch (_e) {}
     }
 
-    setActiveEngineType(targetEngineType);
+    try {
+      setActiveEngineType(targetEngineType);
 
-    if (targetEngineType === ENGINE_TYPE.VLC) {
-      vlcAttemptsRef.current++;
-      if (vlcPlayer && url) {
-        try {
-          const vlcSource = {
-            uri: url,
-            userAgent: DEFAULT_IPTV_USER_AGENT,
-            vlcOptions: [':network-caching=3000', ':live-caching=2000'],
-            title: title || 'Live Stream',
-          };
-          vlcPlayer.source = vlcSource;
-          vlcPlayer.autoPlay = true;
-          vlcPlayer.play();
-          setToastMessage('Switched to VLC Player Engine');
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 2200);
-        } catch (_vlcErr) {
-          logPlayerDiagnostic('vlcStartError', { error: _vlcErr.message });
+      if (targetEngineType === ENGINE_TYPE.VLC) {
+        vlcAttemptsRef.current++;
+        if (vlcPlayer && url) {
+          try {
+            const vlcSource = {
+              uri: url,
+              userAgent: DEFAULT_IPTV_USER_AGENT,
+              vlcOptions: [':network-caching=3000', ':live-caching=2000'],
+              title: title || 'Live Stream',
+            };
+            vlcPlayer.source = vlcSource;
+            vlcPlayer.autoPlay = true;
+            vlcPlayer.play();
+            setToastMessage('Switched to VLC Player Engine');
+            setShowToast(true);
+            setTimeout(() => setShowToast(false), 2200);
+          } catch (_vlcErr) {
+            logPlayerDiagnostic('vlcStartError', { error: _vlcErr.message });
+          }
+        }
+      } else {
+        nativeAttemptsRef.current++;
+        if (player && playerSource) {
+          try {
+            if (typeof player.replaceAsync === 'function') {
+              player.replaceAsync(playerSource).then(() => {
+                player.play();
+              }).catch(() => {});
+            } else {
+              player.replace(playerSource);
+              player.play();
+            }
+            setToastMessage('Switched to Native Player Engine');
+            setShowToast(true);
+            setTimeout(() => setShowToast(false), 2200);
+          } catch (_natErr) {}
         }
       }
-    } else {
-      nativeAttemptsRef.current++;
-      if (player && playerSource) {
-        try {
-          if (typeof player.replaceAsync === 'function') {
-            player.replaceAsync(playerSource).then(() => {
-              player.play();
-            }).catch(() => {});
-          } else {
-            player.replace(playerSource);
-            player.play();
-          }
-          setToastMessage('Switched to Native Player Engine');
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 2200);
-        } catch (_natErr) {}
-      }
+    } catch (_switchErr) {
+      logPlayerDiagnostic('engineSwitchError', { error: _switchErr?.message });
+    } finally {
+      setIsSwitchingEngine(false);
     }
-
-    setIsSwitchingEngine(false);
   }, [activeEngineType, player, vlcPlayer, url, playerSource, title, setDebouncedBuffering]);
 
   // Screen brightness management with lifecycle restoration
@@ -2117,10 +2116,16 @@ export default function PlayerScreen() {
             canRetry={errorDetails ? errorDetails.canRetry : true}
             onRetry={handleRetry}
             onBack={handleBack}
-            onSwitchEngine={() => {
-              const target = activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
-              switchEngine(target, ENGINE_SWITCH_REASON.USER_RETRY);
-            }}
+            onSwitchEngine={
+              (activeEngineType === ENGINE_TYPE.VLC || probeVlcNativeAvailability().available)
+                ? () => {
+                    try {
+                      const target = activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+                      switchEngine(target, ENGINE_SWITCH_REASON.USER_RETRY);
+                    } catch (_e) {}
+                  }
+                : null
+            }
             switchEngineLabel={activeEngineType === ENGINE_TYPE.NATIVE ? 'Try Playing with VLC Engine' : 'Try Playing with Native Engine'}
             isMini={false}
             insets={insets}
@@ -2148,12 +2153,19 @@ export default function PlayerScreen() {
         activeEngineType={activeEngineType}
         engineMode={engineMode}
         onSelectMode={async (mode) => {
-          setEngineMode(mode);
-          await savePlayerSettings({ preferredEngine: mode });
-          const target = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
-          if (target !== activeEngineType) {
-            switchEngine(target, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
-          }
+          try {
+            setEngineMode(mode);
+            await savePlayerSettings({ preferredEngine: mode });
+            const target = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+            if (target !== activeEngineType) {
+              await switchEngine(target, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
+            }
+          } catch (_e) {}
+        }}
+        onSwitchEngine={async (targetEngine) => {
+          try {
+            await switchEngine(targetEngine, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
+          } catch (_e) {}
         }}
         onClose={() => setShowEngineModal(false)}
         onDismiss={() => setShowEngineModal(false)}

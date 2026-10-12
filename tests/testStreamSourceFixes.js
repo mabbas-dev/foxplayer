@@ -60,9 +60,33 @@ async function runTests() {
     'http://provider.tv:8080/live/user123/pass456/9876.m3u8',
     'iOS live stream without extension must be rewritten to .m3u8'
   );
+
+  // Test live stream with output=ts
+  const iosOutputTs = 'http://provider.tv:8080/live/user123/pass456/9876?output=ts';
+  const preparedIosOutputTs = prepareStreamUrlForPlatform(iosOutputTs, {
+    type: 'live',
+    platform: 'ios',
+  });
+  assert.strictEqual(
+    preparedIosOutputTs,
+    'http://provider.tv:8080/live/user123/pass456/9876.m3u8?output=m3u8',
+    'iOS live stream with output=ts must be rewritten to output=m3u8 with .m3u8 path'
+  );
+
+  // Test live stream DASH .mpd
+  const iosMpdLive = 'http://provider.tv:8080/live/user123/pass456/manifest.mpd';
+  const preparedIosMpdLive = prepareStreamUrlForPlatform(iosMpdLive, {
+    type: 'live',
+    platform: 'ios',
+  });
+  assert.strictEqual(
+    preparedIosMpdLive,
+    'http://provider.tv:8080/live/user123/pass456/manifest.m3u8',
+    'iOS live stream DASH .mpd must be rewritten to .m3u8'
+  );
   console.log('   ✓ iOS live streams correctly targeted to provider HLS (.m3u8) endpoints.');
 
-  // TEST 3: iOS AVPlayer VOD (.mkv -> .mp4)
+  // TEST 3: iOS AVPlayer VOD (.mkv -> .mp4, legacy formats)
   console.log('\n3. Testing iOS AVPlayer VOD Container Rewriting (.mkv -> .mp4)...');
   const iosMkvVod = 'http://provider.tv:8080/movie/user123/pass456/555.mkv';
   const preparedIosVod = prepareStreamUrlForPlatform(iosMkvVod, {
@@ -74,7 +98,21 @@ async function runTests() {
     'http://provider.tv:8080/movie/user123/pass456/555.mp4',
     'iOS MKV movie must be rewritten to .mp4 for native AVPlayer playback'
   );
-  console.log('   ✓ iOS VOD movies correctly rewritten from .mkv to .mp4.');
+
+  // Test legacy AVI and FLV
+  const iosAviVod = 'http://provider.tv:8080/movie/user123/pass456/123.avi';
+  assert.strictEqual(
+    prepareStreamUrlForPlatform(iosAviVod, { type: 'movie', platform: 'ios' }),
+    'http://provider.tv:8080/movie/user123/pass456/123.mp4',
+    'iOS AVI movie must be rewritten to .mp4'
+  );
+  const iosFlvVod = 'http://provider.tv:8080/movie/user123/pass456/123.flv';
+  assert.strictEqual(
+    prepareStreamUrlForPlatform(iosFlvVod, { type: 'movie', platform: 'ios' }),
+    'http://provider.tv:8080/movie/user123/pass456/123.mp4',
+    'iOS FLV movie must be rewritten to .mp4'
+  );
+  console.log('   ✓ iOS VOD movies correctly rewritten from .mkv/.avi/.flv to .mp4.');
 
   // TEST 4: Android ExoPlayer Stream Preservation
   console.log('\n4. Testing Android ExoPlayer Stream Preservation...');
