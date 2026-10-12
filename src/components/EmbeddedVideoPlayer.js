@@ -102,10 +102,9 @@ export default function EmbeddedVideoPlayer({
   const rawUri = resolvedSource?.uri || (typeof source === 'string' ? source : source?.uri) || url || '';
   const currentStreamId = streamId || channel?.id || channel?.streamId || resolvedSource?.streamId || '';
   
-  // Single-pass platform stream preparation (avoids double proxy wrapping and preserves direct streams)
+  // Single-pass platform stream preparation (preserves authentic direct streams)
   const sanitizedUri = useMemo(() => {
     if (resolvedSource?.uri) return resolvedSource.uri;
-    if (rawUri.includes('/api/stream/live/')) return rawUri;
     return prepareStreamUrlForPlatform(rawUri, {
       type: 'live',
       extension,
@@ -1277,17 +1276,7 @@ export default function EmbeddedVideoPlayer({
       return;
     }
 
-    // Stop proxy on previous stream if applicable
-    const prevUri = currentUrlRef.current;
-    if (prevUri && prevUri !== nextUri && prevUri.includes('/api/stream/live/')) {
-      const match = prevUri.match(/\/api\/stream\/live\/([^/?#]+)/);
-      if (match) {
-        const oldId = match[1].replace(/\.m3u8$/i, '');
-        try {
-          fetch(`${API_BASE_URL}/api/stream/live/${oldId}/stop`, { method: 'POST' }).catch(() => {});
-        } catch (_e) {}
-      }
-    }
+
 
     // Immediately pause active player to release stream connection slot and prevent audio bleed
     try {
@@ -1508,16 +1497,7 @@ export default function EmbeddedVideoPlayer({
     return () => {
       clearAllWatchdogs();
       if (!externalPlayer) {
-        const lastUri = currentUrlRef.current;
-        if (lastUri && lastUri.includes('/api/stream/live/')) {
-          const match = lastUri.match(/\/api\/stream\/live\/([^/?#]+)/);
-          if (match) {
-            const oldId = match[1].replace(/\.m3u8$/i, '');
-            try {
-              fetch(`${API_BASE_URL}/api/stream/live/${oldId}/stop`, { method: 'POST' }).catch(() => {});
-            } catch (_e) {}
-          }
-        }
+
         if (!externalPlayer && internalPlayer) {
           try {
             internalPlayer.pause();

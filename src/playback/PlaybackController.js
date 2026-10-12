@@ -17,6 +17,7 @@ import { PLAYBACK_STATE, PLAYER_COMMAND, MEDIA_TYPE } from './playbackTypes.js';
 import { normalizePlaybackSource } from './sourceNormalizer.js';
 import { getPlatformPlayer } from './PlatformPlayer.js';
 import { logPlayerDiagnostic } from '../utils/playerConfig.js';
+import { DEFAULT_IPTV_USER_AGENT } from '../utils/mediaSourcePipeline.js';
 
 export class PlaybackController {
   /**
@@ -571,7 +572,7 @@ export class PlaybackController {
         const fallbackSource = {
           uri: fallbackUrl,
           contentType: fallbackUrl.includes('.m3u8') ? 'hls' : 'progressive',
-          headers: this.currentSource?.headers || { 'User-Agent': 'FOX-PLAYER/1.0' },
+          headers: this.currentSource?.headers || { 'User-Agent': DEFAULT_IPTV_USER_AGENT },
           metadata: this.currentSource?.metadata,
         };
 

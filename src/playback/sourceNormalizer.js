@@ -16,6 +16,7 @@ import {
   detectContentType,
   resolveStreamSource,
   normalizePlaybackSource as baseNormalizePlaybackSource,
+  DEFAULT_IPTV_USER_AGENT,
 } from '../utils/mediaSourcePipeline.js';
 import {
   sanitizeMediaUrl,
@@ -77,7 +78,7 @@ export function normalizePlaybackSource(itemOrConfig, platform = Platform.OS) {
       isVOD: Boolean(base?.isVOD),
       isHLS: false,
       mediaClass: MEDIA_CLASS.UNKNOWN,
-      headers: { 'User-Agent': 'FOX-PLAYER/1.0' },
+      headers: { 'User-Agent': DEFAULT_IPTV_USER_AGENT },
       provider: PROVIDER_TYPE.UNKNOWN,
       providerType: PROVIDER_TYPE.UNKNOWN,
       playlistId: itemOrConfig?.playlistId || itemOrConfig?.playlist_id || '',
@@ -115,17 +116,16 @@ export function normalizePlaybackSource(itemOrConfig, platform = Platform.OS) {
   // Platform-specific content type classification:
   // On iOS (AVFoundation):
   // - If URL contains .m3u8 or was flagged explicitly as HLS by the provider, set 'hls'.
-  // - If it is a raw binary .ts stream, DO NOT force 'hls'! Raw TS must be loaded progressively
-  //   so URLSession doesn't try to parse raw TS bytes as an M3U text playlist.
   // On Android (Media3 / ExoPlayer):
   // - ExoPlayer natively decodes HLS, DASH, Progressive TS, and MP4.
+  // - For live TS streams, keep AUTO so DefaultExtractorsFactory dynamically probes packets.
   let contentType = CONTENT_TYPE.AUTO;
-  if (mediaType === CONTAINER_FORMAT.M3U8) {
+  if (mediaType === CONTAINER_FORMAT.M3U8 || cleanUri.includes('.m3u8')) {
     contentType = CONTENT_TYPE.HLS;
+  } else if (base.isLive) {
+    contentType = targetPlatform === 'ios' ? CONTENT_TYPE.HLS : CONTENT_TYPE.AUTO;
   } else if (['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv'].includes(mediaType)) {
     contentType = CONTENT_TYPE.PROGRESSIVE;
-  } else if (mediaType === CONTAINER_FORMAT.TS) {
-    contentType = targetPlatform === 'android' ? CONTENT_TYPE.PROGRESSIVE : CONTENT_TYPE.AUTO;
   } else if (base.contentType && base.contentType !== 'auto') {
     contentType = base.contentType;
   }
@@ -146,10 +146,13 @@ export function normalizePlaybackSource(itemOrConfig, platform = Platform.OS) {
   const playlistId = base.rawItem?.playlistId || base.rawItem?.playlist_id || itemOrConfig?.playlistId || itemOrConfig?.playlist_id || '';
   const contentId = String(base.streamId || base.rawItem?.stream_id || base.rawItem?.id || base.rawItem?.num || itemOrConfig?.stream_id || itemOrConfig?.id || '');
 
+  const defaultHeaders = { 'User-Agent': DEFAULT_IPTV_USER_AGENT };
+  const headers = base.headers ? { ...defaultHeaders, ...base.headers } : defaultHeaders;
+
   const playerSource = base.playerSource || (cleanUri ? {
     uri: cleanUri,
     ...(contentType && contentType !== 'auto' ? { contentType } : {}),
-    headers: base.headers || { 'User-Agent': 'FOX-PLAYER/1.0' },
+    headers,
     metadata: {
       title: base.title || 'Fox Player',
       ...(base.poster ? { artwork: base.poster } : {}),
@@ -166,7 +169,7 @@ export function normalizePlaybackSource(itemOrConfig, platform = Platform.OS) {
     isVOD: base.isVOD,
     isHLS,
     mediaClass,
-    headers: base.headers || { 'User-Agent': 'FOX-PLAYER/1.0' },
+    headers,
     provider,
     providerType: provider,
     playlistId,
@@ -195,4 +198,5 @@ export {
   getStreamFallbackUrl,
   sanitizePlaybackUrl,
   sanitizePlaybackHeaders,
+  normalizePlaybackSource as normalizeStreamSource,
 };

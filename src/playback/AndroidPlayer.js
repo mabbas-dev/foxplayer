@@ -14,6 +14,7 @@
 import { classifyPlayerError } from '../utils/playerErrorMapper.js';
 import { getStreamFallbackUrl, sanitizePlaybackUrl } from '../utils/playerConfig.js';
 import { CONTENT_TYPE, MEDIA_TYPE } from './playbackTypes.js';
+import { DEFAULT_IPTV_USER_AGENT } from '../utils/mediaSourcePipeline.js';
 
 export class AndroidPlayerDriver {
   constructor() {
@@ -73,22 +74,29 @@ export class AndroidPlayerDriver {
     const { uri, contentType, headers, metadata } = normalizedSource;
 
     let sourceContentType = contentType;
-    if (sourceContentType === CONTENT_TYPE.AUTO) {
+    if (sourceContentType === CONTENT_TYPE.AUTO || !sourceContentType) {
       if (uri.includes('.m3u8')) {
         sourceContentType = CONTENT_TYPE.HLS;
       } else if (uri.includes('.mpd')) {
         sourceContentType = CONTENT_TYPE.DASH;
       } else if (uri.includes('.ism')) {
         sourceContentType = CONTENT_TYPE.SMOOTH_STREAMING;
-      } else {
+      } else if (normalizedSource.isLive || normalizedSource.streamType === 'live') {
+        sourceContentType = CONTENT_TYPE.AUTO;
+      } else if (uri.includes('.mp4') || uri.includes('.mkv') || uri.includes('.mov') || uri.includes('.avi')) {
         sourceContentType = CONTENT_TYPE.PROGRESSIVE;
+      } else {
+        sourceContentType = CONTENT_TYPE.AUTO;
       }
     }
+
+    const defaultHeaders = { 'User-Agent': DEFAULT_IPTV_USER_AGENT };
+    const mergedHeaders = headers ? { ...defaultHeaders, ...headers } : defaultHeaders;
 
     return {
       uri,
       ...(sourceContentType && sourceContentType !== 'auto' ? { contentType: sourceContentType } : {}),
-      headers: headers || { 'User-Agent': 'FOX-PLAYER/1.0' },
+      headers: mergedHeaders,
       metadata: {
         title: metadata?.title || 'Live Channel',
         ...(metadata?.poster ? { artwork: metadata.poster } : {}),

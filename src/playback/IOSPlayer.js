@@ -16,6 +16,7 @@
 import { classifyPlayerError } from '../utils/playerErrorMapper.js';
 import { getStreamFallbackUrl, sanitizeMediaUrl } from '../utils/playerConfig.js';
 import { CONTENT_TYPE, CONTAINER_FORMAT, MEDIA_TYPE } from './playbackTypes.js';
+import { DEFAULT_IPTV_USER_AGENT } from '../utils/mediaSourcePipeline.js';
 
 export class IOSPlayerDriver {
   constructor() {
@@ -91,24 +92,23 @@ export class IOSPlayerDriver {
     const cleanPath = safeUri.split('?')[0].split('#')[0].toLowerCase();
 
     // Determine iOS AVPlayer contentType:
-    // Sets contentType: 'hls' ONLY when the stream is genuinely an HLS playlist (.m3u8).
-    // Never forces 'hls' on raw .ts streams, preventing VideoPlayerItem.swift from attempting
-    // to parse raw MPEG-TS binary bytes as M3U text, which causes -16845 fatal CoreMedia errors.
+    // Sets contentType: 'hls' when the stream is an HLS playlist (.m3u8) or live channel.
     let sourceContentType = null;
-    if (cleanPath.endsWith('.m3u8') || safeUri.includes('.m3u8') || safeUri.includes('/api/stream/live/')) {
+    if (cleanPath.endsWith('.m3u8') || safeUri.includes('.m3u8')) {
       sourceContentType = CONTENT_TYPE.HLS;
     } else if (cleanPath.endsWith('.mp4') || cleanPath.endsWith('.mov')) {
       sourceContentType = CONTENT_TYPE.PROGRESSIVE;
-    } else if (cleanPath.endsWith('.ts') || normalizedSource.contentType === CONTENT_TYPE.PROGRESSIVE) {
-      sourceContentType = CONTENT_TYPE.PROGRESSIVE;
-    } else if (normalizedSource.streamType === 'live') {
+    } else if (normalizedSource.isLive || normalizedSource.streamType === 'live') {
       sourceContentType = CONTENT_TYPE.HLS;
     }
+
+    const defaultHeaders = { 'User-Agent': DEFAULT_IPTV_USER_AGENT };
+    const headers = normalizedSource.headers ? { ...defaultHeaders, ...normalizedSource.headers } : defaultHeaders;
 
     return {
       uri: safeUri,
       ...(sourceContentType ? { contentType: sourceContentType } : {}),
-      headers: normalizedSource.headers || { 'User-Agent': 'FOX-PLAYER/1.0' },
+      headers,
       metadata: {
         title: normalizedSource.metadata?.title || 'Live Channel',
         ...(normalizedSource.metadata?.poster ? { artwork: normalizedSource.metadata.poster } : {}),

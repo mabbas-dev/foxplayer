@@ -10,7 +10,6 @@ import {
 } from '../services/xtreamService.js';
 import { sanitizeMediaUrl, prepareStreamUrlForPlatform } from './playerConfig.js';
 import { logPlayer } from './diagnostics.js';
-import { API_BASE_URL } from '../constants/index.js';
 
 export const DEFAULT_IPTV_USER_AGENT = 'IPTVSmartersPro/3.1.5 (Linux; Android 12)';
 
@@ -97,7 +96,7 @@ export function validateStreamSource(source) {
  * @param {string} [options.extension]
  * @returns {'hls' | 'progressive' | 'dash' | 'smoothStreaming' | 'auto'}
  */
-export function detectContentType(url, { type = '', extension = '' } = {}) {
+export function detectContentType(url, { type = '', extension = '', platform = Platform.OS } = {}) {
   if (!url || typeof url !== 'string') return 'auto';
 
   const cleanUrl = url.split('?')[0].split('#')[0].toLowerCase();
@@ -108,36 +107,36 @@ export function detectContentType(url, { type = '', extension = '' } = {}) {
   }
 
   if (cleanUrl.endsWith('.mpd') || cleanUrl.includes('.mpd') || ext === 'mpd') {
-    return Platform.OS === 'android' ? 'dash' : 'auto';
+    return platform === 'android' ? 'dash' : 'auto';
   }
 
-  if (cleanUrl.endsWith('.ism/manifest') || ext === 'ism') {
-    return Platform.OS === 'android' ? 'smoothStreaming' : 'auto';
+  if (cleanUrl.endsWith('.ism/manifest') || cleanUrl.endsWith('.ism') || ext === 'ism') {
+    return platform === 'android' ? 'smoothStreaming' : 'auto';
+  }
+
+  const isLive = type === 'live' || type === 'channel';
+
+  // Live TV stream detection
+  if (isLive) {
+    if (cleanUrl.endsWith('.m3u8') || url.includes('.m3u8')) {
+      return 'hls';
+    }
+    if (platform === 'ios') {
+      return 'hls';
+    }
+    // On Android ExoPlayer, keep AUTO so DefaultExtractorsFactory dynamically probes TS container
+    return 'auto';
   }
 
   if (
     cleanUrl.endsWith('.mp4') ||
+    cleanUrl.endsWith('.mov') ||
     cleanUrl.endsWith('.mkv') ||
     cleanUrl.endsWith('.avi') ||
-    cleanUrl.endsWith('.mov') ||
     cleanUrl.endsWith('.webm') ||
     cleanUrl.endsWith('.flv') ||
-    cleanUrl.endsWith('.ts') ||
-    ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'ts'].includes(ext)
+    ['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv'].includes(ext)
   ) {
-    return 'progressive';
-  }
-
-  // Live TV stream detection
-  const isLive = type === 'live' || type === 'channel';
-  if (isLive) {
-    // If URL has .m3u8, it is HLS
-    if (url.includes('.m3u8')) return 'hls';
-    // If iOS AVPlayer receives a live stream, explicitly identifying 'hls'
-    // allows AVPlayer to parse HLS playlists that lack .m3u8 extensions
-    if (Platform.OS === 'ios' && !cleanUrl.endsWith('.ts')) {
-      return 'hls';
-    }
     return 'progressive';
   }
 
@@ -397,7 +396,6 @@ export function normalizePlaybackSource(content, options = {}) {
     extension: resolved.extension,
     platform: targetPlatform,
     streamId: resolved.contentId || resolved.streamId || rawItem?.stream_id || rawItem?.id || '',
-    serverBaseUrl: opts.serverBaseUrl || (typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : ''),
   });
 
   // Re-detect content type for platform-prepared URL
@@ -407,9 +405,8 @@ export function normalizePlaybackSource(content, options = {}) {
     platform: targetPlatform,
   });
 
-  // On iOS AVPlayer, explicitly specify 'hls' ONLY when URL is actually an HLS manifest (.m3u8) or HLS proxy.
-  // Non-HLS streams (.ts, .mp4) must NOT be forced into HLS mode.
-  if (platformUri.includes('.m3u8') || platformUri.includes('/api/stream/live/')) {
+  // On iOS AVPlayer, explicitly specify 'hls' when URL is an HLS manifest (.m3u8) or live channel
+  if (platformUri.includes('.m3u8')) {
     contentType = 'hls';
   }
 

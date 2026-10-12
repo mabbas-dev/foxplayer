@@ -7,6 +7,7 @@
 
 import { BasePlaybackEngine } from './BasePlaybackEngine.js';
 import { PLAYBACK_STATE, ENGINE_TYPE } from '../playbackTypes.js';
+import { DEFAULT_IPTV_USER_AGENT } from '../../utils/mediaSourcePipeline.js';
 
 // Safe dynamic resolution of rn-vlc-plyr to avoid crash if native binary is absent
 let VlcModule = null;
@@ -247,7 +248,7 @@ export class VlcPlaybackEngine extends BasePlaybackEngine {
     if (!this.player) return;
 
     // Build VLC source configuration
-    const userAgent = source.headers?.['User-Agent'] || source.userAgent || 'FOX-PLAYER/1.0';
+    const userAgent = source.headers?.['User-Agent'] || source.userAgent || DEFAULT_IPTV_USER_AGENT;
     const referrer = source.headers?.Referer || source.headers?.referer || undefined;
     const vlcSource = {
       uri: source.uri,

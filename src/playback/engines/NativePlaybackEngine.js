@@ -180,9 +180,27 @@ export class NativePlaybackEngine extends BasePlaybackEngine {
     }
 
     try {
-      this.player.replace(prepared);
-      if (options.autoPlay !== false) {
-        this.player.play();
+      if (typeof this.player.replaceAsync === 'function') {
+        this.player.replaceAsync(prepared).then(() => {
+          if (options.autoPlay !== false) {
+            try { this.player.play(); } catch (_e) {}
+          }
+        }).catch((e) => {
+          const classified = classifyPlayerError(e);
+          this.setState(PLAYBACK_STATE.ERROR);
+          this.emit('error', {
+            code: classified.code,
+            message: classified.message,
+            category: classified.category,
+            isRecoverable: classified.isRecoverable,
+            rawError: e,
+          });
+        });
+      } else {
+        this.player.replace(prepared);
+        if (options.autoPlay !== false) {
+          this.player.play();
+        }
       }
     } catch (e) {
       const classified = classifyPlayerError(e);
@@ -219,6 +237,11 @@ export class NativePlaybackEngine extends BasePlaybackEngine {
     if (!this.player) return;
     try {
       this.player.pause();
+      if (typeof this.player.replaceAsync === 'function') {
+        this.player.replaceAsync(null).catch(() => {});
+      } else {
+        this.player.replace(null);
+      }
       this.player.currentTime = 0;
       this.setState(PLAYBACK_STATE.IDLE);
     } catch (_e) {}

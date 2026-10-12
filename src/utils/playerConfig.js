@@ -174,27 +174,28 @@ export function sanitizeMediaUrl(rawUrl) {
  */
 export function prepareStreamUrlForPlatform(
   rawUrl,
-  { type = '', extension = '', platform = Platform.OS, streamId = '', serverBaseUrl = '' } = {}
+  { type = '', extension = '', platform = Platform.OS, streamId = '' } = {}
 ) {
   if (!rawUrl) return '';
   let sanitized = sanitizeMediaUrl(rawUrl);
 
-  // If already routed through the HLS proxy, do NOT re-wrap!
-  if (sanitized.includes('/api/stream/live/')) {
-    return sanitized;
-  }
-
   const isLive = type === 'live' || type === 'channel' || sanitized.includes('/live/');
 
-  // On iOS, Apple AVPlayer cannot decode progressive raw MPEG-TS over HTTP without Content-Length (Code=-11850 / -12939).
-  // Furthermore, IPTV servers return HTTP 405 Method Not Allowed if .ts is blindly rewritten to .m3u8.
-  // When a backend/LAN serverBaseUrl is provided, we route .ts live streams through the HLS proxy segmenter.
-  // When serverBaseUrl is absent (or on Android), the authentic provider URL is preserved without mutation.
-  if (platform === 'ios' && isLive && serverBaseUrl) {
-    const isTs = /\.ts(\?.*)?$/i.test(sanitized) || extension === 'ts' || (!sanitized.includes('.m3u8') && extension !== 'm3u8' && extension !== 'mp4');
-    if (isTs) {
-      const cleanStreamId = streamId || sanitized.match(/\/(\d+)(\.[a-zA-Z0-9]+)?(\?.*)?$/i)?.[1] || sanitized.match(/\/live\/[^/]+\/[^/]+\/(\d+)/i)?.[1] || 'live';
-      return `${serverBaseUrl}/api/stream/live/${cleanStreamId}.m3u8?url=${encodeURIComponent(sanitized)}`;
+  // On iOS, Apple AVPlayer (AVFoundation) requires HLS (.m3u8) manifests for Live TV streaming.
+  // Apple AVPlayer cannot decode progressive raw MPEG-TS (.ts) over plain HTTP (Code=-11850 / -12939).
+  // For Xtream Codes and IPTV live streams, requesting .m3u8 directly targets the server's native HLS endpoint.
+  if (platform === 'ios' && isLive) {
+    if (/\.ts(\?.*)?$/i.test(sanitized)) {
+      sanitized = sanitized.replace(/\.ts(\?.*)?$/i, '.m3u8$1');
+    } else if (sanitized.includes('/live/') && !sanitized.includes('.m3u8') && !sanitized.includes('.mp4')) {
+      const queryIdx = sanitized.indexOf('?');
+      if (queryIdx !== -1) {
+        const pathPart = sanitized.slice(0, queryIdx);
+        const queryPart = sanitized.slice(queryIdx);
+        sanitized = `${pathPart.replace(/\.[a-zA-Z0-9]+$/, '')}.m3u8${queryPart}`;
+      } else {
+        sanitized = `${sanitized.replace(/\.[a-zA-Z0-9]+$/, '')}.m3u8`;
+      }
     }
   }
 
@@ -203,7 +204,7 @@ export function prepareStreamUrlForPlatform(
   // When playing on iOS, transform .mkv to .mp4 for movies/series VOD URLs so AVPlayer can natively open the container.
   if (platform === 'ios' && (/\.mkv(\?.*)?$/i.test(sanitized) || extension === 'mkv')) {
     if (sanitized.includes('/movie/') || sanitized.includes('/series/') || type === 'movie' || type === 'series' || type === 'vod') {
-      return sanitized.replace(/\.mkv(\?.*)?$/i, '.mp4$1');
+      sanitized = sanitized.replace(/\.mkv(\?.*)?$/i, '.mp4$1');
     }
   }
 
@@ -212,39 +213,19 @@ export function prepareStreamUrlForPlatform(
 
 /**
  * Returns alternative fallback URL if primary stream URL fails or times out.
- * E.g., if .m3u8 fails, fallback to .ts; if proxy fails, fallback to direct; if .ts fails, fallback to proxy/m3u8.
- * For VOD on iOS, if .mkv fails, fallback to .mp4.
+ * E.g., if .m3u8 fails, fallback to .ts; if .ts fails, fallback to .m3u8.
+ * For VOD on iOS, if .mkv fails, fallback to .mp4; if .mp4 fails, fallback to .m3u8.
  *
  * @param {string} currentUrl
  * @param {Object} options
  * @param {boolean} [options.isLive=true]
  * @param {string} [options.platform=Platform.OS]
- * @param {string} [options.serverBaseUrl='']
  * @returns {string | null}
  */
-export function getStreamFallbackUrl(currentUrl, { isLive = true, platform = Platform.OS, serverBaseUrl = '' } = {}) {
+export function getStreamFallbackUrl(currentUrl, { isLive = true, platform = Platform.OS } = {}) {
   if (!currentUrl || typeof currentUrl !== 'string') return null;
 
   if (isLive) {
-    // If currently playing via local/backend HLS proxy, fallback to authentic upstream URL
-    if (currentUrl.includes('/api/stream/live/')) {
-      const match = currentUrl.match(/[?&]url=([^&]+)/);
-      if (match) {
-        try {
-          return decodeURIComponent(match[1]);
-        } catch (_e) {
-          return match[1];
-        }
-      }
-    }
-
-    // If currently playing direct .ts and on iOS with serverBaseUrl, fallback to HLS proxy
-    if (platform === 'ios' && /\.ts(\?.*)?$/i.test(currentUrl) && serverBaseUrl) {
-      const streamIdMatch = currentUrl.match(/\/(\d+)\.ts/i);
-      const cleanStreamId = streamIdMatch ? streamIdMatch[1] : 'live';
-      return `${serverBaseUrl}/api/stream/live/${cleanStreamId}.m3u8?url=${encodeURIComponent(currentUrl)}`;
-    }
-
     if (/\.m3u8(\?.*)?$/i.test(currentUrl)) {
       return currentUrl.replace(/\.m3u8(\?.*)?$/i, '.ts$1');
     }
@@ -259,6 +240,11 @@ export function getStreamFallbackUrl(currentUrl, { isLive = true, platform = Pla
     // If MP4 fails on iOS, try M3U8
     if (/\.mp4(\?.*)?$/i.test(currentUrl)) {
       return currentUrl.replace(/\.mp4(\?.*)?$/i, '.m3u8$1');
+    }
+  } else {
+    // On Android, if .mp4 fails, try .mkv
+    if (/\.mp4(\?.*)?$/i.test(currentUrl)) {
+      return currentUrl.replace(/\.mp4(\?.*)?$/i, '.mkv$1');
     }
   }
 
