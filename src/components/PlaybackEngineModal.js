@@ -4,12 +4,12 @@
  * Provides user-facing engine configuration:
  * - Auto (Recommended): Primary native player with automatic VLC fallback
  * - Native Player: Hardware-accelerated Media3 / AVPlayer
- * - VLC Player: libVLC player for broad IPTV codec/container support
+ * - VLC Player: libVLC player for broad IPTV codec/container support (disabled if not compiled in)
  *
- * Displays live engine diagnostics and allows instant manual switching.
+ * Displays live engine diagnostics and allows instant manual switching safely.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -21,48 +21,39 @@ import {
 } from 'react-native';
 import Colors from '../constants/colors';
 import { ENGINE_MODE, ENGINE_TYPE, ENGINE_LABELS } from '../playback/playbackTypes';
+import { getAvailablePlayerEngines } from '../playback/playerSettings';
 import { CheckIcon, CloseXIcon } from './Icons';
 
 export default function PlaybackEngineModal({
   visible = false,
   onClose,
+  onDismiss,
   engineMode = ENGINE_MODE.AUTO,
   activeEngineType = ENGINE_TYPE.NATIVE,
   onSelectMode,
   onSwitchEngine,
   isSwitching = false,
 }) {
+  const handleClose = onClose || onDismiss || (() => {});
+
+  const availableEngines = useMemo(() => {
+    return getAvailablePlayerEngines(activeEngineType);
+  }, [activeEngineType, visible]);
+
   if (!visible) return null;
 
-  const modes = [
-    {
-      id: ENGINE_MODE.AUTO,
-      title: 'Auto (Recommended)',
-      subtitle: 'Attempts high-performance native engine first, automatically switches to VLC if format or codec fails.',
-      tag: 'RECOMMENDED',
-    },
-    {
-      id: ENGINE_MODE.NATIVE,
-      title: 'Native Player',
-      subtitle: 'AndroidX Media3 ExoPlayer (Android) / AVPlayer (iOS). Best for standard HLS, DASH, and MP4.',
-      tag: 'FASTEST',
-    },
-    {
-      id: ENGINE_MODE.VLC,
-      title: 'VLC Player',
-      subtitle: 'Integrated libVLC engine. Maximum format compatibility for MPEG-TS, MKV, AVI, and legacy codecs.',
-      tag: 'COMPATIBLE',
-    },
-  ];
+  const canSwitchToOther = availableEngines.some(
+    (e) => e.id !== activeEngineType && e.isAvailable
+  );
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
-      <TouchableWithoutFeedback onPress={onClose}>
+      <TouchableWithoutFeedback onPress={handleClose}>
         <View style={styles.backdrop}>
           <TouchableWithoutFeedback>
             <View style={styles.modalCard}>
@@ -74,7 +65,7 @@ export default function PlaybackEngineModal({
                 </View>
                 <TouchableOpacity
                   style={styles.closeBtn}
-                  onPress={onClose}
+                  onPress={handleClose}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
                   <CloseXIcon size={18} color="#FFFFFF" />
@@ -95,15 +86,19 @@ export default function PlaybackEngineModal({
 
               {/* Modes Selection */}
               <ScrollView style={styles.modesList} contentContainerStyle={{ gap: 10 }}>
-                {modes.map((item) => {
+                {availableEngines.map((item) => {
                   const isSelected = engineMode === item.id;
+                  const isDisabled = !item.isAvailable;
+
                   return (
                     <TouchableOpacity
                       key={item.id}
                       style={[
                         styles.modeItem,
                         isSelected && styles.modeItemSelected,
+                        isDisabled && styles.modeItemDisabled,
                       ]}
+                      disabled={isDisabled}
                       onPress={() => {
                         if (typeof onSelectMode === 'function') {
                           onSelectMode(item.id);
@@ -113,18 +108,45 @@ export default function PlaybackEngineModal({
                     >
                       <View style={styles.modeContent}>
                         <View style={styles.modeTitleRow}>
-                          <Text style={[styles.modeTitle, isSelected && styles.modeTitleSelected]}>
-                            {item.title}
+                          <Text
+                            style={[
+                              styles.modeTitle,
+                              isSelected && styles.modeTitleSelected,
+                              isDisabled && styles.modeTitleDisabled,
+                            ]}
+                          >
+                            {item.name}
                           </Text>
                           {item.tag && (
-                            <View style={[styles.tagBadge, isSelected && styles.tagBadgeSelected]}>
-                              <Text style={styles.tagText}>{item.tag}</Text>
+                            <View
+                              style={[
+                                styles.tagBadge,
+                                isSelected && styles.tagBadgeSelected,
+                                isDisabled && styles.tagBadgeDisabled,
+                              ]}
+                            >
+                              <Text style={[styles.tagText, isDisabled && styles.tagTextDisabled]}>
+                                {item.tag}
+                              </Text>
                             </View>
                           )}
                         </View>
-                        <Text style={styles.modeDesc}>{item.subtitle}</Text>
+                        <Text
+                          style={[
+                            styles.modeDesc,
+                            isDisabled && styles.modeDescDisabled,
+                          ]}
+                        >
+                          {isDisabled ? item.disabledReason : item.description}
+                        </Text>
                       </View>
-                      <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
+                      <View
+                        style={[
+                          styles.radioCircle,
+                          isSelected && styles.radioCircleSelected,
+                          isDisabled && styles.radioCircleDisabled,
+                        ]}
+                      >
                         {isSelected && <CheckIcon size={12} color="#FFFFFF" />}
                       </View>
                     </TouchableOpacity>
@@ -133,25 +155,26 @@ export default function PlaybackEngineModal({
               </ScrollView>
 
               {/* Quick Manual Toggle Footer */}
-              <View style={styles.footer}>
-                <TouchableOpacity
-                  style={[styles.quickSwitchBtn, isSwitching && { opacity: 0.6 }]}
-                  disabled={isSwitching}
-                  onPress={() => {
-                    if (typeof onSwitchEngine === 'function') {
-                      const nextEngine = activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+              {onSwitchEngine && canSwitchToOther && (
+                <View style={styles.footer}>
+                  <TouchableOpacity
+                    style={[styles.quickSwitchBtn, isSwitching && { opacity: 0.6 }]}
+                    disabled={isSwitching}
+                    onPress={() => {
+                      const nextEngine =
+                        activeEngineType === ENGINE_TYPE.NATIVE ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
                       onSwitchEngine(nextEngine);
-                    }
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.quickSwitchText}>
-                    {activeEngineType === ENGINE_TYPE.NATIVE
-                      ? '⚡ Force Switch to VLC Player Now'
-                      : '⚡ Force Switch to Native Player Now'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.quickSwitchText}>
+                      {activeEngineType === ENGINE_TYPE.NATIVE
+                        ? '⚡ Force Switch to VLC Player Now'
+                        : '⚡ Force Switch to Native Player Now'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </TouchableWithoutFeedback>
         </View>
@@ -178,25 +201,25 @@ const styles = StyleSheet.create({
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
+    shadowOpacity: 0.4,
+    shadowRadius: 15,
     elevation: 20,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 14,
+    marginBottom: 16,
   },
   title: {
+    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   subtitle: {
+    color: '#8A92A6',
     fontSize: 12,
-    color: '#9CA3AF',
     marginTop: 2,
   },
   closeBtn: {
@@ -210,75 +233,83 @@ const styles = StyleSheet.create({
   diagnosticBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 107, 0, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 0, 0.25)',
-    borderRadius: 10,
+    backgroundColor: '#0F1015',
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 10,
     marginBottom: 16,
-    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   diagnosticDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#10B981', // green active dot
+    backgroundColor: Colors.brand.primary,
+    marginRight: 8,
   },
   diagnosticLabel: {
+    color: '#8A92A6',
     fontSize: 12,
-    fontWeight: '600',
-    color: '#9CA3AF',
+    marginRight: 6,
   },
   diagnosticValue: {
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
-    flex: 1,
   },
   switchingBadge: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: Colors.brand.primary,
-    backgroundColor: 'rgba(255, 107, 0, 0.2)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    marginLeft: 'auto',
+    backgroundColor: Colors.brand.primary,
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   modesList: {
-    maxHeight: 280,
+    maxHeight: 320,
   },
   modeItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
+    backgroundColor: '#1C1D24',
     padding: 14,
-    gap: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
   modeItemSelected: {
-    backgroundColor: 'rgba(255, 107, 0, 0.12)',
     borderColor: Colors.brand.primary,
+    backgroundColor: 'rgba(229, 9, 20, 0.08)',
+  },
+  modeItemDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#121318',
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
   modeContent: {
     flex: 1,
+    paddingRight: 12,
   },
   modeTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 4,
   },
   modeTitle: {
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
-    color: '#E5E7EB',
   },
   modeTitleSelected: {
     color: '#FFFFFF',
+  },
+  modeTitleDisabled: {
+    color: '#656A7B',
   },
   tagBadge: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -289,23 +320,32 @@ const styles = StyleSheet.create({
   tagBadgeSelected: {
     backgroundColor: Colors.brand.primary,
   },
+  tagBadgeDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
   tagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#C5C9D5',
+    fontSize: 10,
+    fontWeight: '700',
     letterSpacing: 0.5,
   },
+  tagTextDisabled: {
+    color: '#656A7B',
+  },
   modeDesc: {
-    fontSize: 11,
-    color: '#9CA3AF',
+    color: '#8A92A6',
+    fontSize: 12,
     lineHeight: 16,
   },
+  modeDescDisabled: {
+    color: '#555A6B',
+  },
   radioCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: '#4A5063',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -313,24 +353,24 @@ const styles = StyleSheet.create({
     borderColor: Colors.brand.primary,
     backgroundColor: Colors.brand.primary,
   },
+  radioCircleDisabled: {
+    borderColor: '#262D3D',
+  },
   footer: {
     marginTop: 16,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    paddingTop: 12,
   },
   quickSwitchBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: '#262D3D',
+    paddingVertical: 12,
     borderRadius: 10,
-    paddingVertical: 10,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   quickSwitchText: {
-    fontSize: 12,
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '700',
-    color: Colors.brand.primary,
   },
 });

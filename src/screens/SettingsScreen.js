@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,12 +23,21 @@ import SubscriptionDetailsModal from '../components/SubscriptionDetailsModal';
 import PlaybackEngineModal from '../components/PlaybackEngineModal';
 import { ENGINE_MODE, ENGINE_TYPE } from '../playback/playbackTypes';
 import {
+  getPlayerSettings,
+  savePlayerSettings,
+  resetPlayerSettings,
+  subscribePlayerSettings,
+  getAvailablePlayerEngines,
+  validateEngineSelection,
+  BUFFER_PROFILE,
+} from '../playback/playerSettings';
+import {
   setAdultPin,
   changeAdultPin,
   removeAdultPin,
   verifyAdultPin,
 } from '../storage/pinStorage';
-import { clearAllCache, readCache, writeCache } from '../storage/cacheStorage';
+import { clearAllCache } from '../storage/cacheStorage';
 import { APP_VERSION } from '../constants';
 import Colors from '../constants/colors';
 import NativePlayerTestHarness from '../components/NativePlayerTestHarness';
@@ -95,16 +104,30 @@ export default function SettingsScreen() {
   const [pinLoading, setPinLoading] = useState(false);
   const [showDiagnosticModal, setShowDiagnosticModal] = useState(false);
   const [showSubscriptionDetailsModal, setShowSubscriptionDetailsModal] = useState(false);
-  const [engineMode, setEngineMode] = useState(ENGINE_MODE.AUTO);
   const [showEngineModal, setShowEngineModal] = useState(false);
 
+  // Live Player Settings
+  const [playerSettings, setPlayerSettingsState] = useState(getPlayerSettings());
+
   useEffect(() => {
-    readCache('fox_player_preferred_engine_mode').then((saved) => {
-      if (saved === ENGINE_MODE.AUTO || saved === ENGINE_MODE.NATIVE || saved === ENGINE_MODE.VLC) {
-        setEngineMode(saved);
-      }
-    }).catch(() => {});
+    const unsub = subscribePlayerSettings((settings) => {
+      setPlayerSettingsState(settings);
+    });
+    return unsub;
   }, []);
+
+  const availableEngines = useMemo(() => {
+    const activeType = playerSettings.preferredEngine === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+    return getAvailablePlayerEngines(activeType);
+  }, [playerSettings.preferredEngine]);
+
+  const currentPreferredLabel = useMemo(() => {
+    if (playerSettings.preferredEngine === ENGINE_MODE.VLC) return 'VLC Player';
+    if (playerSettings.preferredEngine === ENGINE_MODE.NATIVE) {
+      return Platform.OS === 'ios' ? 'Native (AVPlayer)' : 'Native (Media3)';
+    }
+    return 'Auto (Recommended)';
+  }, [playerSettings.preferredEngine]);
 
   const formatDate = (ts) => {
     if (!ts) return 'Never';
@@ -116,6 +139,48 @@ export default function SettingsScreen() {
       await reloadPlaylist(null, { isManual: true });
       router.replace('/(tabs)');
     } catch (_e) {}
+  };
+
+  const handleSelectEngine = async (mode) => {
+    const validation = validateEngineSelection(mode);
+    if (!validation.valid) {
+      Alert.alert('Engine Unavailable', validation.error);
+      return;
+    }
+    try {
+      const res = await savePlayerSettings({ preferredEngine: mode });
+      if (!res.success && res.error) {
+        Alert.alert('Configuration Error', res.error);
+      }
+    } catch (e) {
+      Alert.alert('Error', e?.message || 'Failed to update player preference.');
+    }
+  };
+
+  const handleUpdateSetting = async (partial) => {
+    try {
+      await savePlayerSettings(partial);
+    } catch (e) {
+      Alert.alert('Error', e?.message || 'Failed to save playback setting.');
+    }
+  };
+
+  const handleResetDefaults = () => {
+    Alert.alert(
+      'Restore Defaults',
+      'Reset all playback and player settings to factory defaults?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore',
+          style: 'destructive',
+          onPress: async () => {
+            await resetPlayerSettings();
+            Alert.alert('Success', 'Playback settings restored to factory defaults.');
+          },
+        },
+      ]
+    );
   };
 
   const handleSetPin = async () => {
@@ -160,14 +225,17 @@ export default function SettingsScreen() {
     if (pin.length !== 4) { setPinError('PIN must be 4 digits.'); return; }
     setPinLoading(true);
     try {
-      const valid = await verifyAdultPin(pin);
-      if (!valid) { setPinError('Incorrect PIN.'); setPinLoading(false); return; }
+      const ok = await verifyAdultPin(pin);
+      if (!ok) {
+        setPinError('Incorrect PIN.');
+        setPinLoading(false);
+        return;
+      }
       await removeAdultPin();
       await refreshAdultPinStatus();
-      lockAdult();
       setShowPinModal(null);
       setPin('');
-      Alert.alert('PIN Disabled', 'Adult content protection has been disabled.');
+      Alert.alert('Success', 'Adult content PIN has been removed.');
     } catch (e) {
       setPinError(e.message);
     } finally {
@@ -175,18 +243,22 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleClearCache = () => {
+  const handleClearCache = async () => {
     Alert.alert(
       'Clear Cache',
-      'This will remove all cached channel and content data. You will need to reload your playlist.',
+      'This will clear local cache and re-sync device status. Are you sure?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            await clearAllCache();
-            Alert.alert('Cache Cleared', 'All cached data has been removed.');
+            try {
+              await clearAllCache();
+              Alert.alert('Success', 'Cache cleared successfully.');
+            } catch (_e) {
+              Alert.alert('Error', 'Failed to clear cache.');
+            }
           },
         },
       ]
@@ -225,11 +297,10 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Scrollable Settings Content */}
       {/* Non-Scrolling Responsive 3-Column Settings Layout */}
       <View style={styles.settingsGrid}>
         {/* Column 1: System & Provider Connection */}
-        <View style={styles.settingsCol}>
+        <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
           <SettingsSection title="Device & Subscription">
             <SettingsRow label="Device ID" value={deviceId || 'Unknown'} mono />
             <SettingsRow
@@ -330,10 +401,10 @@ export default function SettingsScreen() {
               <Text style={styles.actionRowChevron}>&gt;</Text>
             </TouchableOpacity>
           </SettingsSection>
-        </View>
+        </ScrollView>
 
-        {/* Column 2: Security & Playback Engine */}
-        <View style={styles.settingsCol}>
+        {/* Column 2: Security & Playback & Player Settings */}
+        <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
           <SettingsSection title="Security">
             <View style={styles.toggleRow}>
               <View style={styles.toggleTextCol}>
@@ -397,35 +468,178 @@ export default function SettingsScreen() {
             )}
           </SettingsSection>
 
-          <SettingsSection title="Playback">
-            <TouchableOpacity
-              style={styles.actionRow}
-              onPress={() => setShowEngineModal(true)}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Select playback engine mode"
-            >
-              <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingRight: 6 }}>
-                <Text style={styles.actionRowLabel}>Engine Mode</Text>
-                <Text style={{ color: Colors.brand.primary, fontSize: 13, fontWeight: '700' }}>
-                  {engineMode === ENGINE_MODE.VLC
-                    ? 'VLC Player'
-                    : (engineMode === ENGINE_MODE.NATIVE
-                      ? (Platform.OS === 'ios' ? 'Native (AVPlayer)' : 'Native (Media3)')
-                      : 'Auto (Recommended)')}
+          {/* DEDICATED SECTION: Playback & Player Settings */}
+          <SettingsSection title="Playback & Player Settings">
+            {/* Preferred Player Selection Cards */}
+            <Text style={styles.subSectionTitle}>PREFERRED PLAYER</Text>
+            {availableEngines.map((engine) => {
+              const isSelected = playerSettings.preferredEngine === engine.id;
+              const isDisabled = !engine.isAvailable;
+
+              return (
+                <TouchableOpacity
+                  key={engine.id}
+                  style={[
+                    styles.playerCard,
+                    isSelected && styles.playerCardSelected,
+                    isDisabled && styles.playerCardDisabled,
+                  ]}
+                  onPress={() => handleSelectEngine(engine.id)}
+                  disabled={isDisabled}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.playerCardHeader}>
+                    <View style={styles.radioRow}>
+                      <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected, isDisabled && styles.radioCircleDisabled]}>
+                        {isSelected && <View style={styles.radioDot} />}
+                      </View>
+                      <Text style={[styles.playerCardTitle, isSelected && styles.playerCardTitleSelected, isDisabled && styles.textDisabled]}>
+                        {engine.name}
+                      </Text>
+                    </View>
+                    <View style={styles.badgeRow}>
+                      {engine.tag && (
+                        <View style={[styles.tagPill, isSelected && styles.tagPillSelected, isDisabled && styles.tagPillDisabled]}>
+                          <Text style={[styles.tagPillText, isDisabled && styles.tagPillTextDisabled]}>
+                            {engine.tag}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <Text style={[styles.playerCardDesc, isDisabled && styles.textDisabled]} numberOfLines={2}>
+                    {isDisabled ? `Unavailable: ${engine.disabledReason}` : engine.description}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+
+            {/* Active vs Preferred Distinctions */}
+            <View style={styles.engineDistinctionBox}>
+              <View style={styles.distinctionRow}>
+                <Text style={styles.distinctionLabel}>Preferred Player:</Text>
+                <Text style={styles.distinctionValue}>{currentPreferredLabel}</Text>
+              </View>
+              <View style={styles.distinctionRow}>
+                <Text style={styles.distinctionLabel}>Playback Engine:</Text>
+                <Text style={[styles.distinctionValue, { color: Colors.brand.primary }]}>
+                  {Platform.OS === 'ios' ? 'AVFoundation AVPlayer' : 'Media3 ExoPlayer'}
                 </Text>
               </View>
+            </View>
+
+            {/* Playback Controls & Fallback Settings */}
+            <Text style={styles.subSectionTitle}>STREAMING & FALLBACK BEHAVIOR</Text>
+
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleTextCol}>
+                <Text style={styles.settingsRowLabel}>Automatic Fallback</Text>
+                <Text style={styles.toggleSubtitle}>
+                  Switch player automatically if stream codec or format fails
+                </Text>
+              </View>
+              <Switch
+                value={playerSettings.autoFallbackEnabled}
+                onValueChange={(val) => handleUpdateSetting({ autoFallbackEnabled: val })}
+                trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
+                thumbColor={playerSettings.autoFallbackEnabled ? '#FFFFFF' : '#8A92A6'}
+              />
+            </View>
+
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleTextCol}>
+                <Text style={styles.settingsRowLabel}>Retry Failed Streams</Text>
+                <Text style={styles.toggleSubtitle}>
+                  Auto-reconnect on dropped or timed-out network streams
+                </Text>
+              </View>
+              <Switch
+                value={playerSettings.retryFailedStreams}
+                onValueChange={(val) => handleUpdateSetting({ retryFailedStreams: val })}
+                trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
+                thumbColor={playerSettings.retryFailedStreams ? '#FFFFFF' : '#8A92A6'}
+              />
+            </View>
+
+            {/* Max Retry Attempts */}
+            <View style={styles.selectorRow}>
+              <View style={styles.toggleTextCol}>
+                <Text style={styles.settingsRowLabel}>Max Retry Attempts</Text>
+                <Text style={styles.toggleSubtitle}>Limits sequential reconnection tries</Text>
+              </View>
+              <View style={styles.pillGroup}>
+                {[1, 2, 3, 5].map((count) => {
+                  const isCur = (playerSettings.maxRetryAttempts || 3) === count;
+                  return (
+                    <TouchableOpacity
+                      key={count}
+                      style={[styles.pillBtn, isCur && styles.pillBtnSelected]}
+                      onPress={() => handleUpdateSetting({ maxRetryAttempts: count })}
+                    >
+                      <Text style={[styles.pillBtnText, isCur && styles.pillBtnTextSelected]}>
+                        {count}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Buffering Behavior */}
+            <View style={styles.selectorRow}>
+              <View style={styles.toggleTextCol}>
+                <Text style={styles.settingsRowLabel}>Buffering Profile</Text>
+                <Text style={styles.toggleSubtitle}>Stream cache vs startup delay</Text>
+              </View>
+              <View style={styles.pillGroup}>
+                {[
+                  { id: BUFFER_PROFILE.LOW_LATENCY, label: 'Fast' },
+                  { id: BUFFER_PROFILE.NORMAL, label: 'Standard' },
+                  { id: BUFFER_PROFILE.STABLE, label: 'Stable' },
+                ].map((prof) => {
+                  const isCur = (playerSettings.bufferProfile || BUFFER_PROFILE.NORMAL) === prof.id;
+                  return (
+                    <TouchableOpacity
+                      key={prof.id}
+                      style={[styles.pillBtn, isCur && styles.pillBtnSelected]}
+                      onPress={() => handleUpdateSetting({ bufferProfile: prof.id })}
+                    >
+                      <Text style={[styles.pillBtnText, isCur && styles.pillBtnTextSelected]}>
+                        {prof.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleTextCol}>
+                <Text style={styles.settingsRowLabel}>Remember Player Selection</Text>
+                <Text style={styles.toggleSubtitle}>
+                  Retain selected player preference across app restarts
+                </Text>
+              </View>
+              <Switch
+                value={playerSettings.rememberPlayerPreference}
+                onValueChange={(val) => handleUpdateSetting({ rememberPlayerPreference: val })}
+                trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
+                thumbColor={playerSettings.rememberPlayerPreference ? '#FFFFFF' : '#8A92A6'}
+              />
+            </View>
+
+            {/* Restore Defaults */}
+            <TouchableOpacity
+              style={styles.actionRow}
+              onPress={handleResetDefaults}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.actionRowLabel, { color: Colors.brand.primary }]}>
+                Restore Default Playback Settings
+              </Text>
               <Text style={styles.actionRowChevron}>&gt;</Text>
             </TouchableOpacity>
 
-            <SettingsRow
-              label="Primary Engine"
-              value={Platform.OS === 'ios' ? 'AVFoundation (AVPlayer)' : 'AndroidX Media3 (ExoPlayer)'}
-            />
-            <SettingsRow
-              label="Fallback Engine"
-              value="VLC Player (libVLC integrated)"
-            />
             <TouchableOpacity
               style={styles.actionRow}
               onPress={() => setShowDiagnosticModal(true)}
@@ -435,10 +649,10 @@ export default function SettingsScreen() {
               <Text style={styles.actionRowChevron}>&gt;</Text>
             </TouchableOpacity>
           </SettingsSection>
-        </View>
+        </ScrollView>
 
         {/* Column 3: Storage & Version Info */}
-        <View style={styles.settingsCol}>
+        <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
           <SettingsSection title="Data & Storage">
             <TouchableOpacity style={styles.actionRow} onPress={handleClearCache} activeOpacity={0.8}>
               <Text style={[styles.actionRowLabel, { color: Colors.status.error }]}>Clear Cache</Text>
@@ -451,7 +665,7 @@ export default function SettingsScreen() {
             <SettingsRow label="Version" value={APP_VERSION} />
             <SettingsRow label="Build" value="Production" />
           </SettingsSection>
-        </View>
+        </ScrollView>
       </View>
 
       {/* PIN Modals */}
@@ -460,40 +674,39 @@ export default function SettingsScreen() {
           visible={true}
           transparent
           animationType="fade"
-          supportedOrientations={['landscape', 'landscape-left', 'landscape-right']}
           onRequestClose={() => setShowPinModal(null)}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
             {showPinModal === 'set' && (
               <PinModal
-                title="Set Adult PIN"
+                title="Set Adult Content PIN"
                 onCancel={() => setShowPinModal(null)}
                 onConfirm={handleSetPin}
                 loading={pinLoading}
                 error={pinError}
+                confirmLabel="Set PIN"
               >
-                <PinInput label="New PIN" value={pin} onChange={setPin} />
+                <PinInput label="New 4-Digit PIN" value={pin} onChange={setPin} />
                 <PinInput label="Confirm PIN" value={confirmPin} onChange={setConfirmPin} />
               </PinModal>
             )}
-
             {showPinModal === 'change' && (
               <PinModal
-                title="Change PIN"
+                title="Change Adult PIN"
                 onCancel={() => setShowPinModal(null)}
                 onConfirm={handleChangePin}
                 loading={pinLoading}
                 error={pinError}
+                confirmLabel="Change PIN"
               >
                 <PinInput label="Current PIN" value={oldPin} onChange={setOldPin} />
-                <PinInput label="New PIN" value={pin} onChange={setPin} />
-                <PinInput label="Confirm New PIN" value={confirmPin} onChange={setConfirmPin} />
+                <PinInput label="New 4-Digit PIN" value={pin} onChange={setPin} />
+                <PinInput label="Confirm PIN" value={confirmPin} onChange={setConfirmPin} />
               </PinModal>
             )}
-
             {showPinModal === 'disable' && (
               <PinModal
                 title="Disable Adult PIN"
@@ -501,40 +714,23 @@ export default function SettingsScreen() {
                 onConfirm={handleDisablePin}
                 loading={pinLoading}
                 error={pinError}
-                confirmLabel="Disable"
+                confirmLabel="Disable PIN"
                 confirmDanger
               >
-                <PinInput label="Current PIN" value={pin} onChange={setPin} />
+                <PinInput label="Enter Current PIN to Disable" value={pin} onChange={setPin} />
               </PinModal>
             )}
           </KeyboardAvoidingView>
         </Modal>
       )}
 
-      {/* Development & Field Playback Diagnostic Modal */}
-      {showDiagnosticModal && (
-        <Modal
-          visible={true}
-          transparent
-          animationType="fade"
-          supportedOrientations={['landscape', 'landscape-left', 'landscape-right']}
-          onRequestClose={() => setShowDiagnosticModal(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
-              <NativePlayerTestHarness />
-              <TouchableOpacity
-                style={[styles.modalCancel, { marginTop: 12 }]}
-                onPress={() => setShowDiagnosticModal(false)}
-              >
-                <Text style={styles.modalCancelText}>Close Diagnostics</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-      )}
+      {/* Native Player Diagnostics Modal */}
+      <NativePlayerTestHarness
+        visible={showDiagnosticModal}
+        onClose={() => setShowDiagnosticModal(false)}
+      />
 
-      {/* Subscription & Expiry Details Dialog */}
+      {/* Subscription Details Modal */}
       <SubscriptionDetailsModal
         visible={showSubscriptionDetailsModal}
         onClose={() => setShowSubscriptionDetailsModal(false)}
@@ -543,14 +739,10 @@ export default function SettingsScreen() {
       {/* Dual Playback Engine Selection Modal */}
       <PlaybackEngineModal
         visible={showEngineModal}
-        activeEngineType={engineMode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE}
-        engineMode={engineMode}
-        onSelectMode={async (mode) => {
-          setEngineMode(mode);
-          try {
-            await writeCache('fox_player_preferred_engine_mode', mode);
-          } catch (_e) {}
-        }}
+        activeEngineType={playerSettings.preferredEngine === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE}
+        engineMode={playerSettings.preferredEngine}
+        onSelectMode={handleSelectEngine}
+        onClose={() => setShowEngineModal(false)}
         onDismiss={() => setShowEngineModal(false)}
       />
     </View>
@@ -677,6 +869,9 @@ const styles = StyleSheet.create({
   settingsCol: {
     flex: 1,
   },
+  colContent: {
+    paddingBottom: 24,
+  },
   section: {
     marginBottom: 6,
   },
@@ -686,6 +881,16 @@ const styles = StyleSheet.create({
     color: Colors.text.tertiary,
     letterSpacing: 1.2,
     marginBottom: 3,
+  },
+  subSectionTitle: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: Colors.text.tertiary,
+    letterSpacing: 1.1,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
   },
   sectionBody: {
     backgroundColor: Colors.background.card,
@@ -759,6 +964,151 @@ const styles = StyleSheet.create({
     color: Colors.text.tertiary,
     marginTop: 1,
     lineHeight: 13,
+  },
+  selectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.subtle,
+  },
+  pillGroup: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  pillBtn: {
+    backgroundColor: '#1E222D',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  pillBtnSelected: {
+    backgroundColor: Colors.brand.primary,
+    borderColor: Colors.brand.primary,
+  },
+  pillBtnText: {
+    color: '#8A92A6',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  pillBtnTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  // Player Cards UI
+  playerCard: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.subtle,
+    backgroundColor: 'transparent',
+  },
+  playerCardSelected: {
+    backgroundColor: 'rgba(229, 9, 20, 0.06)',
+  },
+  playerCardDisabled: {
+    opacity: 0.5,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+  },
+  playerCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  radioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  radioCircle: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: '#4A5063',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioCircleSelected: {
+    borderColor: Colors.brand.primary,
+  },
+  radioCircleDisabled: {
+    borderColor: '#262D3D',
+  },
+  radioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.brand.primary,
+  },
+  playerCardTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  playerCardTitleSelected: {
+    color: '#FFFFFF',
+  },
+  playerCardDesc: {
+    fontSize: 10.5,
+    color: Colors.text.tertiary,
+    paddingLeft: 22,
+    lineHeight: 14,
+  },
+  textDisabled: {
+    color: '#606678',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  tagPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  tagPillSelected: {
+    backgroundColor: Colors.brand.primary,
+  },
+  tagPillDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  tagPillText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  tagPillTextDisabled: {
+    color: '#656A7B',
+  },
+  engineDistinctionBox: {
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.subtle,
+  },
+  distinctionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 1.5,
+  },
+  distinctionLabel: {
+    color: '#8A92A6',
+    fontSize: 10.5,
+  },
+  distinctionValue: {
+    color: '#FFFFFF',
+    fontSize: 10.5,
+    fontWeight: '700',
   },
   // Modal
   modalOverlay: {

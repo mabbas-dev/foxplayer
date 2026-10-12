@@ -47,14 +47,18 @@ import { DualPlaybackCoordinator } from '../playback/engines/DualPlaybackCoordin
 import UnifiedVideoSurface from '../playback/components/UnifiedVideoSurface.js';
 import PlaybackEngineModal from './PlaybackEngineModal.js';
 import { readCache, writeCache } from '../storage/cacheStorage.js';
+import {
+  getPlayerSettings,
+  savePlayerSettings,
+  subscribePlayerSettings,
+  probeVlcNativeAvailability,
+  validateEngineSelection,
+} from '../playback/playerSettings.js';
 import { measureAndLogLayout } from '../utils/layoutDiagnostics';
 
-let useVlcPlayerHook = null;
+let vlcModule = null;
 try {
-  const vlcModule = require('rn-vlc-plyr');
-  if (vlcModule && typeof vlcModule.useVlcPlayer === 'function') {
-    useVlcPlayerHook = vlcModule.useVlcPlayer;
-  }
+  vlcModule = require('rn-vlc-plyr');
 } catch (_e) {}
 
 /**
@@ -279,33 +283,58 @@ export default function EmbeddedVideoPlayer({
   const [showEngineModal, setShowEngineModal]     = useState(false);
   const vlcAttemptsRef                            = useRef(0);
 
-  // Initialize VLC player hook if native module is linked
-  let vlcPlayer = null;
-  if (useVlcPlayerHook) {
-    try {
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      vlcPlayer = useVlcPlayerHook(undefined);
-    } catch (_e) {
-      vlcPlayer = null;
-    }
-  }
+  // Manage VLC player instance safely without illegal conditional hook
+  const [vlcPlayer, setVlcPlayer] = useState(null);
 
-  // Load preferred engine mode from cache
   useEffect(() => {
-    readCache('fox_player_preferred_engine_mode').then((saved) => {
-      if (saved === ENGINE_MODE.AUTO || saved === ENGINE_MODE.NATIVE || saved === ENGINE_MODE.VLC) {
-        setEngineMode(saved);
-        if (saved === ENGINE_MODE.VLC) {
+    const probe = probeVlcNativeAvailability();
+    if (probe.available && vlcModule && typeof vlcModule.createVlcPlayer === 'function') {
+      try {
+        const inst = vlcModule.createVlcPlayer();
+        setVlcPlayer(inst);
+        return () => {
+          try {
+            inst.stop();
+            if (typeof inst.release === 'function') inst.release();
+          } catch (_e) {}
+        };
+      } catch (_e) {
+        setVlcPlayer(null);
+      }
+    }
+  }, []);
+
+  // Load and subscribe to persisted engine preference
+  useEffect(() => {
+    const unsub = subscribePlayerSettings((settings) => {
+      if (settings?.preferredEngine) {
+        setEngineMode(settings.preferredEngine);
+        const probe = probeVlcNativeAvailability();
+        if (settings.preferredEngine === ENGINE_MODE.VLC && probe.available) {
           setActiveEngineType(ENGINE_TYPE.VLC);
           vlcAttemptsRef.current = 1;
+        } else {
+          setActiveEngineType(ENGINE_TYPE.NATIVE);
         }
       }
-    }).catch(() => {});
+    });
+    return unsub;
   }, []);
 
   // Dual engine switcher
   const switchEngine = useCallback(async (targetEngineType, reason = ENGINE_SWITCH_REASON.MANUAL_SWITCH) => {
     if (activeEngineType === targetEngineType && playerStateRef.current === 'PLAYING') return;
+
+    if (targetEngineType === ENGINE_TYPE.VLC) {
+      const probe = probeVlcNativeAvailability();
+      if (!probe.available) {
+        setToastMessage('VLC Player is unavailable in this build');
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 2500);
+        return;
+      }
+    }
+
     setDebouncedBuffering(true);
 
     const fromEngine = activeEngineType;
@@ -877,10 +906,12 @@ export default function EmbeddedVideoPlayer({
     clearAllWatchdogs();
 
     const isSwitchable = DualPlaybackCoordinator.isSwitchableError(classified);
+    const vlcProbe = probeVlcNativeAvailability();
     if (
       engineMode === ENGINE_MODE.AUTO &&
       activeEngineType === ENGINE_TYPE.NATIVE &&
       vlcAttemptsRef.current < 1 &&
+      vlcProbe.available &&
       isSwitchable
     ) {
       logPlayerDiagnostic('embeddedAutoSwitchingToVlc', {
@@ -2709,14 +2740,13 @@ export default function EmbeddedVideoPlayer({
         engineMode={engineMode}
         onSelectMode={async (mode) => {
           setEngineMode(mode);
-          try {
-            await writeCache('fox_player_preferred_engine_mode', mode);
-          } catch (_e) {}
+          await savePlayerSettings({ preferredEngine: mode });
           const target = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
           if (target !== activeEngineType) {
             switchEngine(target, ENGINE_SWITCH_REASON.MANUAL_SWITCH);
           }
         }}
+        onClose={() => setShowEngineModal(false)}
         onDismiss={() => setShowEngineModal(false)}
       />
     </View>

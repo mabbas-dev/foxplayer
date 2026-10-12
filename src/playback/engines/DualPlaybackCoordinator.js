@@ -5,13 +5,14 @@
  * - Primary Engine: AndroidX Media3 ExoPlayer (Android) / AVFoundation AVPlayer (iOS)
  * - Fallback Engine: libVLC (rn-vlc-plyr)
  *
- * Invariants:
- * 1. Default sequence in AUTO mode: Native -> Fallback VLC on recoverable failure.
+ * Production Invariants:
+ * 1. Default sequence in AUTO mode: Native -> Fallback VLC on recoverable failure (if VLC is available).
  * 2. Maximum ONE automatic fallback attempt per playback session to prevent infinite loops.
  * 3. Never auto-switches for errors VLC cannot fix (No Internet, 401/403 Auth, 404 Missing, DRM).
  * 4. Completely releases previous engine before starting the new one (guarantees zero dual audio).
  * 5. Preserves stream URL, headers, volume, mute, VOD position, and aspect ratio during switch.
- * 6. Configurable startup timeout (default 12s).
+ * 6. Configurable startup timeout (default 12s) and buffer profile.
+ * 7. Integrates with centralized playerSettings service.
  */
 
 import {
@@ -23,32 +24,39 @@ import {
 } from '../playbackTypes.js';
 import { NativePlaybackEngine } from './NativePlaybackEngine.js';
 import { VlcPlaybackEngine } from './VlcPlaybackEngine.js';
-let readCache = async () => null;
-let writeCache = async () => {};
-try {
-  const cacheStorage = require('../../storage/cacheStorage.js');
-  if (cacheStorage.readCache) readCache = cacheStorage.readCache;
-  if (cacheStorage.writeCache) writeCache = cacheStorage.writeCache;
-} catch (_e) {}
+import {
+  getPlayerSettings,
+  savePlayerSettings,
+  subscribePlayerSettings,
+  probeVlcNativeAvailability,
+  validateEngineSelection,
+} from '../playerSettings.js';
 
-const STORAGE_ENGINE_MODE_KEY = 'fox_player_preferred_engine_mode';
-const DEFAULT_STARTUP_TIMEOUT_MS = 12000; // 12 seconds default configurable timeout
+const DEFAULT_STARTUP_TIMEOUT_MS = 12000;
 
 export class DualPlaybackCoordinator {
   /**
    * @param {Object} [options]
-   * @param {string} [options.mode='AUTO'] - 'AUTO' | 'NATIVE' | 'VLC'
+   * @param {string} [options.mode] - 'AUTO' | 'NATIVE' | 'VLC'
    * @param {number} [options.startupTimeoutMs=12000]
    */
   constructor({
-    mode = ENGINE_MODE.AUTO,
+    mode = null,
     startupTimeoutMs = DEFAULT_STARTUP_TIMEOUT_MS,
   } = {}) {
-    this.mode = mode;
+    // Current settings from centralized service
+    this.settings = getPlayerSettings();
+    this.mode = mode || this.settings.preferredEngine || ENGINE_MODE.AUTO;
     this.startupTimeoutMs = startupTimeoutMs;
 
-    // Active engine selection
-    this.activeEngineType = mode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
+    // Determine initial active engine
+    const vlcProbe = probeVlcNativeAvailability();
+    if (this.mode === ENGINE_MODE.VLC && vlcProbe.available) {
+      this.activeEngineType = ENGINE_TYPE.VLC;
+    } else {
+      this.activeEngineType = ENGINE_TYPE.NATIVE;
+    }
+
     this.nativeEngine = new NativePlaybackEngine();
     this.vlcEngine = new VlcPlaybackEngine();
 
@@ -68,43 +76,32 @@ export class DualPlaybackCoordinator {
 
     // Timers
     this.startupTimer = null;
-    this.stallTimer = null;
 
     // Listeners
     this.listeners = new Set();
-    this.unsubscribers = [];
 
     // Initialize listeners on both engines
     this._bindEngineEvents(this.nativeEngine, ENGINE_TYPE.NATIVE);
     this._bindEngineEvents(this.vlcEngine, ENGINE_TYPE.VLC);
 
-    // Load persisted user preference asynchronously
-    this._loadPersistedMode();
-  }
-
-  async _loadPersistedMode() {
-    try {
-      const saved = await readCache(STORAGE_ENGINE_MODE_KEY);
-      if (saved && (saved === ENGINE_MODE.AUTO || saved === ENGINE_MODE.NATIVE || saved === ENGINE_MODE.VLC)) {
-        this.mode = saved;
-        if (saved === ENGINE_MODE.VLC) {
-          this.activeEngineType = ENGINE_TYPE.VLC;
-        } else {
-          this.activeEngineType = ENGINE_TYPE.NATIVE;
-        }
-        this.emit('engineModeChanged', { mode: this.mode, activeEngineType: this.activeEngineType });
+    // Subscribe to live settings updates
+    this.settingsUnsubscribe = subscribePlayerSettings((nextSettings) => {
+      this.settings = nextSettings;
+      if (nextSettings.preferredEngine && nextSettings.preferredEngine !== this.mode) {
+        this.setEngineMode(nextSettings.preferredEngine).catch(() => {});
       }
-    } catch (_e) {}
+    });
   }
 
   async setEngineMode(nextMode) {
-    if (nextMode !== ENGINE_MODE.AUTO && nextMode !== ENGINE_MODE.NATIVE && nextMode !== ENGINE_MODE.VLC) {
+    const validation = validateEngineSelection(nextMode);
+    if (!validation.valid) {
+      console.warn(`[DualPlaybackCoordinator] Invalid engine mode ${nextMode}: ${validation.error}`);
       return;
     }
+
     this.mode = nextMode;
-    try {
-      await writeCache(STORAGE_ENGINE_MODE_KEY, nextMode);
-    } catch (_e) {}
+    await savePlayerSettings({ preferredEngine: nextMode });
 
     const targetEngine = nextMode === ENGINE_MODE.VLC ? ENGINE_TYPE.VLC : ENGINE_TYPE.NATIVE;
     if (targetEngine !== this.activeEngineType && this.currentSource) {
@@ -246,7 +243,6 @@ export class DualPlaybackCoordinator {
       return true;
     }
 
-    // Default to true for unclassified native player errors if fallback hasn't been tried
     return true;
   }
 
@@ -255,7 +251,11 @@ export class DualPlaybackCoordinator {
   }
 
   async _handleStartupTimeout() {
-    if (this.mode === ENGINE_MODE.AUTO && this.activeEngineType === ENGINE_TYPE.NATIVE && this.vlcAttempts < 1) {
+    const isAuto = this.mode === ENGINE_MODE.AUTO;
+    const autoFallback = this.settings?.autoFallbackEnabled !== false;
+    const vlcProbe = probeVlcNativeAvailability();
+
+    if (isAuto && autoFallback && this.activeEngineType === ENGINE_TYPE.NATIVE && this.vlcAttempts < 1 && vlcProbe.available) {
       await this.switchEngine(ENGINE_TYPE.VLC, ENGINE_SWITCH_REASON.STARTUP_TIMEOUT);
       return;
     }
@@ -265,7 +265,7 @@ export class DualPlaybackCoordinator {
       message: `Playback startup timed out after ${Math.round(this.startupTimeoutMs / 1000)}s on ${this.activeEngineType}.`,
       category: 'TIMEOUT',
       isRecoverable: true,
-      canSwitchEngine: this.activeEngineType === ENGINE_TYPE.NATIVE && this.vlcAttempts < 1,
+      canSwitchEngine: this.activeEngineType === ENGINE_TYPE.NATIVE && this.vlcAttempts < 1 && vlcProbe.available,
     });
   }
 
@@ -274,8 +274,21 @@ export class DualPlaybackCoordinator {
     this.lastError = errorPayload;
 
     const isAuto = this.mode === ENGINE_MODE.AUTO;
-    const canSwitchToVlc = fromEngineType === ENGINE_TYPE.NATIVE && this.vlcAttempts < 1 && this.isSwitchableError(errorPayload);
-    const canSwitchToNative = fromEngineType === ENGINE_TYPE.VLC && this.nativeAttempts < 1 && this.isSwitchableError(errorPayload);
+    const autoFallback = this.settings?.autoFallbackEnabled !== false;
+    const vlcProbe = probeVlcNativeAvailability();
+
+    const canSwitchToVlc =
+      autoFallback &&
+      fromEngineType === ENGINE_TYPE.NATIVE &&
+      this.vlcAttempts < 1 &&
+      vlcProbe.available &&
+      this.isSwitchableError(errorPayload);
+
+    const canSwitchToNative =
+      autoFallback &&
+      fromEngineType === ENGINE_TYPE.VLC &&
+      this.nativeAttempts < 1 &&
+      this.isSwitchableError(errorPayload);
 
     if (isAuto && canSwitchToVlc) {
       const reason = errorPayload.code || ENGINE_SWITCH_REASON.DECODER_ERROR;
@@ -294,8 +307,10 @@ export class DualPlaybackCoordinator {
     this.emit('error', {
       ...errorPayload,
       activeEngine: fromEngineType,
-      bothEnginesFailed: (this.nativeAttempts >= 1 && this.vlcAttempts >= 1),
-      canSwitchEngine: (fromEngineType === ENGINE_TYPE.NATIVE && this.vlcAttempts < 1) || (fromEngineType === ENGINE_TYPE.VLC && this.nativeAttempts < 1),
+      bothEnginesFailed: this.nativeAttempts >= 1 && (this.vlcAttempts >= 1 || !vlcProbe.available),
+      canSwitchEngine:
+        (fromEngineType === ENGINE_TYPE.NATIVE && this.vlcAttempts < 1 && vlcProbe.available) ||
+        (fromEngineType === ENGINE_TYPE.VLC && this.nativeAttempts < 1),
     });
   }
 
@@ -305,6 +320,22 @@ export class DualPlaybackCoordinator {
   async switchEngine(targetEngineType, reason = ENGINE_SWITCH_REASON.MANUAL_SWITCH) {
     if (this.activeEngineType === targetEngineType && this.getActiveEngine().getPlaybackState() === PLAYBACK_STATE.PLAYING) {
       return;
+    }
+
+    // Guard against switching to VLC if native binary is absent
+    if (targetEngineType === ENGINE_TYPE.VLC) {
+      const vlcProbe = probeVlcNativeAvailability();
+      if (!vlcProbe.available) {
+        console.warn('[DualPlaybackCoordinator] Cannot switch to VLC:', vlcProbe.reason);
+        this.emit('error', {
+          code: 'VLC_UNAVAILABLE',
+          message: vlcProbe.reason || 'VLC Player is not available on this device.',
+          category: 'PLAYER_UNAVAILABLE',
+          isRecoverable: true,
+          canSwitchEngine: false,
+        });
+        return;
+      }
     }
 
     const opId = ++this.currentOperationId;
@@ -391,8 +422,10 @@ export class DualPlaybackCoordinator {
     this.nativeAttempts = 0;
     this.vlcAttempts = 0;
 
+    const vlcProbe = probeVlcNativeAvailability();
+
     // Select initial engine based on mode
-    if (this.mode === ENGINE_MODE.VLC) {
+    if (this.mode === ENGINE_MODE.VLC && vlcProbe.available) {
       this.activeEngineType = ENGINE_TYPE.VLC;
       this.vlcAttempts = 1;
     } else {
@@ -487,6 +520,9 @@ export class DualPlaybackCoordinator {
   async release() {
     this._clearStartupTimer();
     this.currentOperationId++;
+    if (typeof this.settingsUnsubscribe === 'function') {
+      this.settingsUnsubscribe();
+    }
     await Promise.all([
       this.nativeEngine.release().catch(() => {}),
       this.vlcEngine.release().catch(() => {}),
@@ -494,3 +530,5 @@ export class DualPlaybackCoordinator {
     this.listeners.clear();
   }
 }
+
+export default DualPlaybackCoordinator;

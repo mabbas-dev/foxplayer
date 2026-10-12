@@ -100,13 +100,18 @@ async function runTests() {
   assert.strictEqual(coordinator.nativeAttempts, 1);
   assert.strictEqual(coordinator.vlcAttempts, 0);
 
-  // Trigger switch to VLC
+  // Test safe blockage when VLC unavailable
+  await coordinator.switchEngine(ENGINE_TYPE.VLC, ENGINE_SWITCH_REASON.DEMUXER_ERROR);
+  assert.strictEqual(coordinator.getActiveEngineType(), ENGINE_TYPE.NATIVE, 'Must remain on NATIVE when VLC is unavailable');
+
+  // Now enable mock VLC native module and switch
+  global.NitroModulesProxy = { hasHybridObject: (name) => name === 'VlcPlayer' };
   await coordinator.switchEngine(ENGINE_TYPE.VLC, ENGINE_SWITCH_REASON.DEMUXER_ERROR);
   assert.strictEqual(coordinator.getActiveEngineType(), ENGINE_TYPE.VLC);
   assert.strictEqual(coordinator.vlcAttempts, 1);
   assert.strictEqual(switchEvent?.from, ENGINE_TYPE.NATIVE);
   assert.strictEqual(switchEvent?.to, ENGINE_TYPE.VLC);
-  console.log('   ✓ Coordinator switched from NATIVE to VLC and recorded single session attempt.');
+  console.log('   ✓ Coordinator safely blocked switch when unavailable and switched when native module present.');
 
   // TEST 5: Maximum One Fallback Guard (No Infinite Loops)
   console.log('\n5. Testing Loop Prevention Guard...');

@@ -3,25 +3,25 @@
  *
  * Implements BasePlaybackEngine using rn-vlc-plyr (libVLC native engine).
  * Provides broad IPTV codec & container compatibility (MPEG-TS, MKV, AVI, RTSP, AAC, AC3).
+ *
+ * Guaranteed safe against missing native Nitro Module binaries.
  */
 
 import { BasePlaybackEngine } from './BasePlaybackEngine.js';
 import { PLAYBACK_STATE, ENGINE_TYPE } from '../playbackTypes.js';
 import { DEFAULT_IPTV_USER_AGENT } from '../../utils/mediaSourcePipeline.js';
+import { probeVlcNativeAvailability } from '../playerSettings.js';
 
-// Safe dynamic resolution of rn-vlc-plyr to avoid crash if native binary is absent
 let VlcModule = null;
-let isVlcNativeAvailable = false;
 try {
   VlcModule = require('rn-vlc-plyr');
-  if (VlcModule && (typeof VlcModule.createVlcPlayer === 'function' || VlcModule.VlcPlayerView)) {
-    isVlcNativeAvailable = true;
-  }
 } catch (_e) {
-  isVlcNativeAvailable = false;
+  VlcModule = null;
 }
 
-export { isVlcNativeAvailable };
+export function isVlcNativeAvailable() {
+  return probeVlcNativeAvailability().available;
+}
 
 export class VlcPlaybackEngine extends BasePlaybackEngine {
   constructor({ player = null } = {}) {
@@ -50,7 +50,7 @@ export class VlcPlaybackEngine extends BasePlaybackEngine {
    * Check whether native VLC engine binary is available in the current runtime.
    */
   static isAvailable() {
-    return isVlcNativeAvailable;
+    return probeVlcNativeAvailability().available;
   }
 
   /**
@@ -215,11 +215,12 @@ export class VlcPlaybackEngine extends BasePlaybackEngine {
       return;
     }
 
-    if (!isVlcNativeAvailable) {
+    const probe = probeVlcNativeAvailability();
+    if (!probe.available) {
       this.setState(PLAYBACK_STATE.ERROR);
       this.emit('error', {
         code: 'VLC_NOT_BUNDLED',
-        message: 'VLC native engine is not bundled in this build (requires native development build).',
+        message: probe.reason || 'VLC native engine is not bundled in this build.',
         isRecoverable: false,
       });
       return;
@@ -229,7 +230,7 @@ export class VlcPlaybackEngine extends BasePlaybackEngine {
     this.emit('buffering', { isBuffering: true });
 
     // Ensure player instance exists
-    if (!this.player && VlcModule?.createVlcPlayer) {
+    if (!this.player && VlcModule && typeof VlcModule.createVlcPlayer === 'function') {
       try {
         const newPlayer = VlcModule.createVlcPlayer();
         this.attachPlayer(newPlayer);
@@ -245,7 +246,15 @@ export class VlcPlaybackEngine extends BasePlaybackEngine {
       }
     }
 
-    if (!this.player) return;
+    if (!this.player) {
+      this.setState(PLAYBACK_STATE.ERROR);
+      this.emit('error', {
+        code: 'VLC_PLAYER_NULL',
+        message: 'VLC player instance could not be constructed.',
+        isRecoverable: false,
+      });
+      return;
+    }
 
     // Build VLC source configuration
     const userAgent = source.headers?.['User-Agent'] || source.userAgent || DEFAULT_IPTV_USER_AGENT;
@@ -376,3 +385,5 @@ export class VlcPlaybackEngine extends BasePlaybackEngine {
     }
   }
 }
+
+export default VlcPlaybackEngine;
