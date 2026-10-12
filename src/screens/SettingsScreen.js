@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,8 +48,6 @@ export default function SettingsScreen() {
   const {
     deviceId,
     installationId,
-    deviceStatus,
-    lastSyncAt,
     configType,
     isConfigured,
     playlistConfig,
@@ -58,13 +57,13 @@ export default function SettingsScreen() {
     idLock,
     toggleIdLock,
     reloadPlaylist,
-    unlockAdult,
-    lockAdult,
     refreshAdultPinStatus,
   } = useApp();
 
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isMultiColumn = windowWidth >= 720;
 
   const {
     subscription,
@@ -265,6 +264,380 @@ export default function SettingsScreen() {
     );
   };
 
+  // Column 1: System & Provider Connection
+  const renderColumn1 = () => (
+    <>
+      <SettingsSection title="Device & Subscription">
+        <SettingsRow label="Device ID" value={deviceId || 'Unknown'} mono />
+        <SettingsRow
+          label="Installation UUID"
+          value={installationId ? `${installationId.slice(0, 8)}...${installationId.slice(-4)}` : 'Not registered'}
+          mono
+        />
+        <SettingsRow
+          label="App Subscription"
+          value={
+            subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE_TRIAL
+              ? `${subscription?.duration_days || 7}-Day Free Trial`
+              : subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE_PAID
+              ? 'Paid Subscription'
+              : subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL_AVAILABLE
+              ? 'Free Trial Available'
+              : subscriptionStatus === SUBSCRIPTION_STATUS.EXPIRED
+              ? 'Subscription Expired'
+              : 'Free Trial'
+          }
+        />
+        <SettingsRow
+          label="App Status"
+          value={
+            isSubscriptionValid
+              ? `Active (${remainingDays}d remaining)`
+              : subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL_AVAILABLE
+              ? `Eligible (${trialDurationDays} Days)`
+              : subscriptionStatus === SUBSCRIPTION_STATUS.EXPIRED
+              ? 'Expired'
+              : 'Inactive'
+          }
+        />
+        <TouchableOpacity
+          onPress={() => setShowSubscriptionDetailsModal(true)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="View subscription and expiry details"
+        >
+          <SettingsRow
+            label="App Expiry"
+            value={appExpiresAt ? formatDate(appExpiresAt) : (isTrialEligible ? 'Available upon activation' : 'N/A')}
+          />
+        </TouchableOpacity>
+        {isTrialEligible && !isSubscriptionValid && (
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={openTrialDisclaimer}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.actionRowLabel, { color: Colors.brand.primary }]}>Activate Free Trial</Text>
+            <Text style={styles.actionRowChevron}>&gt;</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity
+          style={styles.actionRow}
+          onPress={async () => {
+            const refreshed = await refreshSubscription();
+            if (refreshed) {
+              Alert.alert(
+                'Subscription Checked',
+                `Status: ${String(refreshed.status || '').toUpperCase()}\nValid: ${refreshed.is_valid ? 'Yes' : 'No'}\nApp Expiry: ${refreshed.expires_at ? new Date(refreshed.expires_at).toLocaleString() : 'N/A'}`
+              );
+            } else if (isTrialEligible) {
+              Alert.alert(
+                'Trial Eligible',
+                `Your device is eligible for a ${trialDurationDays}-day free trial.\nTap "Activate Free Trial" to begin.`
+              );
+            } else {
+              Alert.alert('Subscription Checked', 'Unable to reach backend subscription server.');
+            }
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.actionRowLabel}>Refresh Subscription</Text>
+          <Text style={styles.actionRowChevron}>&gt;</Text>
+        </TouchableOpacity>
+      </SettingsSection>
+
+      <SettingsSection title="IPTV Source">
+        <SettingsRow label="Source Type" value={configType ? configType.toUpperCase() : 'Not configured'} />
+        <SettingsRow label="Status" value={isConfigured ? 'Connected' : 'Not connected'} />
+        <SettingsRow label="Provider Expiry" value={providerExpiryText} />
+        <TouchableOpacity
+          style={[styles.actionRow, isSyncing && styles.actionRowDisabled]}
+          onPress={handleReload}
+          disabled={isSyncing}
+          activeOpacity={0.8}
+        >
+          {isSyncing ? (
+            <View style={styles.actionRowContent}>
+              <ActivityIndicator color={Colors.brand.primary} size="small" />
+              <Text style={styles.actionRowLabel}>Reloading...</Text>
+            </View>
+          ) : (
+            <Text style={styles.actionRowLabel}>Reload Playlist</Text>
+          )}
+          <Text style={styles.actionRowChevron}>&gt;</Text>
+        </TouchableOpacity>
+      </SettingsSection>
+    </>
+  );
+
+  // Column 2: Security & Playback Settings
+  const renderColumn2 = () => (
+    <>
+      <SettingsSection title="Security">
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleTextCol}>
+            <Text style={styles.settingsRowLabel}>ID Lock</Text>
+            <Text style={styles.toggleSubtitle}>
+              {idLock
+                ? 'Locked: Website cannot add/remove playlists'
+                : 'Unlocked: Website can manage playlists'}
+            </Text>
+          </View>
+          {isUpdatingIdLock ? (
+            <ActivityIndicator size="small" color={Colors.brand.primary} />
+          ) : (
+            <Switch
+              value={idLock}
+              onValueChange={async (newVal) => {
+                setIsUpdatingIdLock(true);
+                try {
+                  await toggleIdLock(newVal);
+                } catch (err) {
+                  Alert.alert('Error', err?.message || 'Failed to update ID Lock on server.');
+                } finally {
+                  setIsUpdatingIdLock(false);
+                }
+              }}
+              trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
+              thumbColor={idLock ? '#FFFFFF' : '#8A92A6'}
+            />
+          )}
+        </View>
+
+        <SettingsRow label="Adult PIN" value={adultPinEnabled ? 'Enabled' : 'Disabled'} />
+        {!adultPinEnabled ? (
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => { setShowPinModal('set'); setPin(''); setConfirmPin(''); setPinError(''); }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.actionRowLabel}>Set PIN</Text>
+            <Text style={styles.actionRowChevron}>&gt;</Text>
+          </TouchableOpacity>
+        ) : (
+          <View>
+            <TouchableOpacity
+              style={styles.actionRow}
+              onPress={() => { setShowPinModal('change'); setOldPin(''); setPin(''); setConfirmPin(''); setPinError(''); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.actionRowLabel}>Change PIN</Text>
+              <Text style={styles.actionRowChevron}>&gt;</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionRow}
+              onPress={() => { setShowPinModal('disable'); setPin(''); setPinError(''); }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.actionRowLabel, { color: Colors.status.error }]}>Disable PIN</Text>
+              <Text style={styles.actionRowChevron}>&gt;</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </SettingsSection>
+
+      {/* DEDICATED SECTION: Playback & Player Settings */}
+      <SettingsSection title="Playback & Player Settings">
+        <Text style={styles.subSectionTitle}>PREFERRED PLAYER</Text>
+        {availableEngines.map((engine) => {
+          const isSelected = playerSettings.preferredEngine === engine.id;
+          const isDisabled = !engine.isAvailable;
+
+          return (
+            <TouchableOpacity
+              key={engine.id}
+              style={[
+                styles.playerCard,
+                isSelected && styles.playerCardSelected,
+                isDisabled && styles.playerCardDisabled,
+              ]}
+              onPress={() => handleSelectEngine(engine.id)}
+              disabled={isDisabled}
+              activeOpacity={0.8}
+            >
+              <View style={styles.playerCardHeader}>
+                <View style={styles.radioRow}>
+                  <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected, isDisabled && styles.radioCircleDisabled]}>
+                    {isSelected && <View style={styles.radioDot} />}
+                  </View>
+                  <Text style={[styles.playerCardTitle, isSelected && styles.playerCardTitleSelected, isDisabled && styles.textDisabled]}>
+                    {engine.name}
+                  </Text>
+                </View>
+                <View style={styles.badgeRow}>
+                  {engine.tag && (
+                    <View style={[styles.tagPill, isSelected && styles.tagPillSelected, isDisabled && styles.tagPillDisabled]}>
+                      <Text style={[styles.tagPillText, isDisabled && styles.tagPillTextDisabled]}>
+                        {engine.tag}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+              <Text style={[styles.playerCardDesc, isDisabled && styles.textDisabled]} numberOfLines={2}>
+                {isDisabled ? `Unavailable: ${engine.disabledReason}` : engine.description}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Active vs Preferred Distinctions */}
+        <View style={styles.engineDistinctionBox}>
+          <View style={styles.distinctionRow}>
+            <Text style={styles.distinctionLabel}>Preferred Player:</Text>
+            <Text style={styles.distinctionValue}>{currentPreferredLabel}</Text>
+          </View>
+          <View style={styles.distinctionRow}>
+            <Text style={styles.distinctionLabel}>Playback Engine:</Text>
+            <Text style={[styles.distinctionValue, { color: Colors.brand.primary }]}>
+              {Platform.OS === 'ios' ? 'AVFoundation AVPlayer' : 'Media3 ExoPlayer'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Playback Controls & Fallback Settings */}
+        <Text style={styles.subSectionTitle}>STREAMING & FALLBACK BEHAVIOR</Text>
+
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleTextCol}>
+            <Text style={styles.settingsRowLabel}>Automatic Fallback</Text>
+            <Text style={styles.toggleSubtitle}>
+              Switch player automatically if stream codec or format fails
+            </Text>
+          </View>
+          <Switch
+            value={playerSettings.autoFallbackEnabled}
+            onValueChange={(val) => handleUpdateSetting({ autoFallbackEnabled: val })}
+            trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
+            thumbColor={playerSettings.autoFallbackEnabled ? '#FFFFFF' : '#8A92A6'}
+          />
+        </View>
+
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleTextCol}>
+            <Text style={styles.settingsRowLabel}>Retry Failed Streams</Text>
+            <Text style={styles.toggleSubtitle}>
+              Auto-reconnect on dropped or timed-out network streams
+            </Text>
+          </View>
+          <Switch
+            value={playerSettings.retryFailedStreams}
+            onValueChange={(val) => handleUpdateSetting({ retryFailedStreams: val })}
+            trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
+            thumbColor={playerSettings.retryFailedStreams ? '#FFFFFF' : '#8A92A6'}
+          />
+        </View>
+
+        {/* Max Retry Attempts */}
+        <View style={styles.selectorRow}>
+          <View style={styles.toggleTextCol}>
+            <Text style={styles.settingsRowLabel}>Max Retry Attempts</Text>
+            <Text style={styles.toggleSubtitle}>Limits sequential reconnection tries</Text>
+          </View>
+          <View style={styles.pillGroup}>
+            {[1, 2, 3, 5].map((count) => {
+              const isCur = (playerSettings.maxRetryAttempts || 3) === count;
+              return (
+                <TouchableOpacity
+                  key={count}
+                  style={[styles.pillBtn, isCur && styles.pillBtnSelected]}
+                  onPress={() => handleUpdateSetting({ maxRetryAttempts: count })}
+                >
+                  <Text style={[styles.pillBtnText, isCur && styles.pillBtnTextSelected]}>
+                    {count}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Buffering Behavior */}
+        <View style={styles.selectorRow}>
+          <View style={styles.toggleTextCol}>
+            <Text style={styles.settingsRowLabel}>Buffering Profile</Text>
+            <Text style={styles.toggleSubtitle}>Stream cache vs startup delay</Text>
+          </View>
+          <View style={styles.pillGroup}>
+            {[
+              { id: BUFFER_PROFILE.LOW_LATENCY, label: 'Fast' },
+              { id: BUFFER_PROFILE.NORMAL, label: 'Standard' },
+              { id: BUFFER_PROFILE.STABLE, label: 'Stable' },
+            ].map((prof) => {
+              const isCur = (playerSettings.bufferProfile || BUFFER_PROFILE.NORMAL) === prof.id;
+              return (
+                <TouchableOpacity
+                  key={prof.id}
+                  style={[styles.pillBtn, isCur && styles.pillBtnSelected]}
+                  onPress={() => handleUpdateSetting({ bufferProfile: prof.id })}
+                >
+                  <Text style={[styles.pillBtnText, isCur && styles.pillBtnTextSelected]}>
+                    {prof.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleTextCol}>
+            <Text style={styles.settingsRowLabel}>Remember Player Selection</Text>
+            <Text style={styles.toggleSubtitle}>
+              Retain selected player preference across app restarts
+            </Text>
+          </View>
+          <Switch
+            value={playerSettings.rememberPlayerPreference}
+            onValueChange={(val) => handleUpdateSetting({ rememberPlayerPreference: val })}
+            trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
+            thumbColor={playerSettings.rememberPlayerPreference ? '#FFFFFF' : '#8A92A6'}
+          />
+        </View>
+
+        {/* Restore Defaults */}
+        <TouchableOpacity
+          style={styles.actionRow}
+          onPress={handleResetDefaults}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.actionRowLabel, { color: Colors.brand.primary }]}>
+            Restore Default Playback Settings
+          </Text>
+          <Text style={styles.actionRowChevron}>&gt;</Text>
+        </TouchableOpacity>
+
+        {/* Diagnostics Modal Trigger */}
+        <TouchableOpacity
+          style={styles.actionRow}
+          onPress={() => setShowDiagnosticModal(true)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.actionRowLabel}>Native Player Diagnostics</Text>
+          <Text style={styles.actionRowChevron}>&gt;</Text>
+        </TouchableOpacity>
+      </SettingsSection>
+    </>
+  );
+
+  // Column 3: Storage & Version Info
+  const renderColumn3 = () => (
+    <>
+      <SettingsSection title="Data & Storage">
+        <TouchableOpacity style={styles.actionRow} onPress={handleClearCache} activeOpacity={0.8}>
+          <Text style={[styles.actionRowLabel, { color: Colors.status.error }]}>Clear Cache</Text>
+          <Text style={styles.actionRowChevron}>&gt;</Text>
+        </TouchableOpacity>
+      </SettingsSection>
+
+      <SettingsSection title="About">
+        <SettingsRow label="Application" value="FOX PLAYER" />
+        <SettingsRow label="Version" value={APP_VERSION} />
+        <SettingsRow label="Build" value="Production" />
+      </SettingsSection>
+    </>
+  );
+
   return (
     <View
       style={[
@@ -297,376 +670,28 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Non-Scrolling Responsive 3-Column Settings Layout */}
-      <View style={styles.settingsGrid}>
-        {/* Column 1: System & Provider Connection */}
-        <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
-          <SettingsSection title="Device & Subscription">
-            <SettingsRow label="Device ID" value={deviceId || 'Unknown'} mono />
-            <SettingsRow
-              label="Installation UUID"
-              value={installationId ? `${installationId.slice(0, 8)}...${installationId.slice(-4)}` : 'Not registered'}
-              mono
-            />
-            <SettingsRow
-              label="App Subscription"
-              value={
-                subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE_TRIAL
-                  ? `${subscription?.duration_days || 7}-Day Free Trial`
-                  : subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE_PAID
-                  ? 'Paid Subscription'
-                  : subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL_AVAILABLE
-                  ? 'Free Trial Available'
-                  : subscriptionStatus === SUBSCRIPTION_STATUS.EXPIRED
-                  ? 'Subscription Expired'
-                  : 'Free Trial'
-              }
-            />
-            <SettingsRow
-              label="App Status"
-              value={
-                isSubscriptionValid
-                  ? `Active (${remainingDays}d remaining)`
-                  : subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL_AVAILABLE
-                  ? `Eligible (${trialDurationDays} Days)`
-                  : subscriptionStatus === SUBSCRIPTION_STATUS.EXPIRED
-                  ? 'Expired'
-                  : 'Inactive'
-              }
-            />
-            <TouchableOpacity
-              onPress={() => setShowSubscriptionDetailsModal(true)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="View subscription and expiry details"
-            >
-              <SettingsRow
-                label="App Expiry"
-                value={appExpiresAt ? formatDate(appExpiresAt) : (isTrialEligible ? 'Available upon activation' : 'N/A')}
-              />
-            </TouchableOpacity>
-            {isTrialEligible && !isSubscriptionValid && (
-              <TouchableOpacity
-                style={styles.actionRow}
-                onPress={openTrialDisclaimer}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.actionRowLabel, { color: Colors.brand.primary }]}>Activate Free Trial</Text>
-                <Text style={styles.actionRowChevron}>&gt;</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.actionRow}
-              onPress={async () => {
-                const refreshed = await refreshSubscription();
-                if (refreshed) {
-                  Alert.alert(
-                    'Subscription Checked',
-                    `Status: ${String(refreshed.status || '').toUpperCase()}\nValid: ${refreshed.is_valid ? 'Yes' : 'No'}\nApp Expiry: ${refreshed.expires_at ? new Date(refreshed.expires_at).toLocaleString() : 'N/A'}`
-                  );
-                } else if (isTrialEligible) {
-                  Alert.alert(
-                    'Trial Eligible',
-                    `Your device is eligible for a ${trialDurationDays}-day free trial.\nTap "Activate Free Trial" to begin.`
-                  );
-                } else {
-                  Alert.alert('Subscription Checked', 'Unable to reach backend subscription server.');
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.actionRowLabel}>Refresh Subscription</Text>
-              <Text style={styles.actionRowChevron}>&gt;</Text>
-            </TouchableOpacity>
-          </SettingsSection>
-
-          <SettingsSection title="IPTV Source">
-            <SettingsRow label="Source Type" value={configType ? configType.toUpperCase() : 'Not configured'} />
-            <SettingsRow label="Status" value={isConfigured ? 'Connected' : 'Not connected'} />
-            <SettingsRow label="Provider Expiry" value={providerExpiryText} />
-            <TouchableOpacity
-              style={[styles.actionRow, isSyncing && styles.actionRowDisabled]}
-              onPress={handleReload}
-              disabled={isSyncing}
-              activeOpacity={0.8}
-            >
-              {isSyncing ? (
-                <View style={styles.actionRowContent}>
-                  <ActivityIndicator color={Colors.brand.primary} size="small" />
-                  <Text style={styles.actionRowLabel}>Reloading...</Text>
-                </View>
-              ) : (
-                <Text style={styles.actionRowLabel}>Reload Playlist</Text>
-              )}
-              <Text style={styles.actionRowChevron}>&gt;</Text>
-            </TouchableOpacity>
-          </SettingsSection>
+      {/* Responsive Settings Layout */}
+      {isMultiColumn ? (
+        // 3-Column Grid for Landscape / TV / Tablet
+        <View style={styles.settingsGrid}>
+          <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
+            {renderColumn1()}
+          </ScrollView>
+          <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
+            {renderColumn2()}
+          </ScrollView>
+          <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
+            {renderColumn3()}
+          </ScrollView>
+        </View>
+      ) : (
+        // Single-Column Scrollable for Mobile Phones
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
+          {renderColumn1()}
+          {renderColumn2()}
+          {renderColumn3()}
         </ScrollView>
-
-        {/* Column 2: Security & Playback & Player Settings */}
-        <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
-          <SettingsSection title="Security">
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleTextCol}>
-                <Text style={styles.settingsRowLabel}>ID Lock</Text>
-                <Text style={styles.toggleSubtitle}>
-                  {idLock
-                    ? 'Locked: Website cannot add/remove playlists'
-                    : 'Unlocked: Website can manage playlists'}
-                </Text>
-              </View>
-              {isUpdatingIdLock ? (
-                <ActivityIndicator size="small" color={Colors.brand.primary} />
-              ) : (
-                <Switch
-                  value={idLock}
-                  onValueChange={async (newVal) => {
-                    setIsUpdatingIdLock(true);
-                    try {
-                      await toggleIdLock(newVal);
-                    } catch (err) {
-                      Alert.alert('Error', err?.message || 'Failed to update ID Lock on server.');
-                    } finally {
-                      setIsUpdatingIdLock(false);
-                    }
-                  }}
-                  trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
-                  thumbColor={idLock ? '#FFFFFF' : '#8A92A6'}
-                />
-              )}
-            </View>
-
-            <SettingsRow label="Adult PIN" value={adultPinEnabled ? 'Enabled' : 'Disabled'} />
-            {!adultPinEnabled ? (
-              <TouchableOpacity
-                style={styles.actionRow}
-                onPress={() => { setShowPinModal('set'); setPin(''); setConfirmPin(''); setPinError(''); }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.actionRowLabel}>Set PIN</Text>
-                <Text style={styles.actionRowChevron}>&gt;</Text>
-              </TouchableOpacity>
-            ) : (
-              <View>
-                <TouchableOpacity
-                  style={styles.actionRow}
-                  onPress={() => { setShowPinModal('change'); setOldPin(''); setPin(''); setConfirmPin(''); setPinError(''); }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.actionRowLabel}>Change PIN</Text>
-                  <Text style={styles.actionRowChevron}>&gt;</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.actionRow}
-                  onPress={() => { setShowPinModal('disable'); setPin(''); setPinError(''); }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.actionRowLabel, { color: Colors.status.error }]}>Disable PIN</Text>
-                  <Text style={styles.actionRowChevron}>&gt;</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </SettingsSection>
-
-          {/* DEDICATED SECTION: Playback & Player Settings */}
-          <SettingsSection title="Playback & Player Settings">
-            {/* Preferred Player Selection Cards */}
-            <Text style={styles.subSectionTitle}>PREFERRED PLAYER</Text>
-            {availableEngines.map((engine) => {
-              const isSelected = playerSettings.preferredEngine === engine.id;
-              const isDisabled = !engine.isAvailable;
-
-              return (
-                <TouchableOpacity
-                  key={engine.id}
-                  style={[
-                    styles.playerCard,
-                    isSelected && styles.playerCardSelected,
-                    isDisabled && styles.playerCardDisabled,
-                  ]}
-                  onPress={() => handleSelectEngine(engine.id)}
-                  disabled={isDisabled}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.playerCardHeader}>
-                    <View style={styles.radioRow}>
-                      <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected, isDisabled && styles.radioCircleDisabled]}>
-                        {isSelected && <View style={styles.radioDot} />}
-                      </View>
-                      <Text style={[styles.playerCardTitle, isSelected && styles.playerCardTitleSelected, isDisabled && styles.textDisabled]}>
-                        {engine.name}
-                      </Text>
-                    </View>
-                    <View style={styles.badgeRow}>
-                      {engine.tag && (
-                        <View style={[styles.tagPill, isSelected && styles.tagPillSelected, isDisabled && styles.tagPillDisabled]}>
-                          <Text style={[styles.tagPillText, isDisabled && styles.tagPillTextDisabled]}>
-                            {engine.tag}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                  <Text style={[styles.playerCardDesc, isDisabled && styles.textDisabled]} numberOfLines={2}>
-                    {isDisabled ? `Unavailable: ${engine.disabledReason}` : engine.description}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-
-            {/* Active vs Preferred Distinctions */}
-            <View style={styles.engineDistinctionBox}>
-              <View style={styles.distinctionRow}>
-                <Text style={styles.distinctionLabel}>Preferred Player:</Text>
-                <Text style={styles.distinctionValue}>{currentPreferredLabel}</Text>
-              </View>
-              <View style={styles.distinctionRow}>
-                <Text style={styles.distinctionLabel}>Playback Engine:</Text>
-                <Text style={[styles.distinctionValue, { color: Colors.brand.primary }]}>
-                  {Platform.OS === 'ios' ? 'AVFoundation AVPlayer' : 'Media3 ExoPlayer'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Playback Controls & Fallback Settings */}
-            <Text style={styles.subSectionTitle}>STREAMING & FALLBACK BEHAVIOR</Text>
-
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleTextCol}>
-                <Text style={styles.settingsRowLabel}>Automatic Fallback</Text>
-                <Text style={styles.toggleSubtitle}>
-                  Switch player automatically if stream codec or format fails
-                </Text>
-              </View>
-              <Switch
-                value={playerSettings.autoFallbackEnabled}
-                onValueChange={(val) => handleUpdateSetting({ autoFallbackEnabled: val })}
-                trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
-                thumbColor={playerSettings.autoFallbackEnabled ? '#FFFFFF' : '#8A92A6'}
-              />
-            </View>
-
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleTextCol}>
-                <Text style={styles.settingsRowLabel}>Retry Failed Streams</Text>
-                <Text style={styles.toggleSubtitle}>
-                  Auto-reconnect on dropped or timed-out network streams
-                </Text>
-              </View>
-              <Switch
-                value={playerSettings.retryFailedStreams}
-                onValueChange={(val) => handleUpdateSetting({ retryFailedStreams: val })}
-                trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
-                thumbColor={playerSettings.retryFailedStreams ? '#FFFFFF' : '#8A92A6'}
-              />
-            </View>
-
-            {/* Max Retry Attempts */}
-            <View style={styles.selectorRow}>
-              <View style={styles.toggleTextCol}>
-                <Text style={styles.settingsRowLabel}>Max Retry Attempts</Text>
-                <Text style={styles.toggleSubtitle}>Limits sequential reconnection tries</Text>
-              </View>
-              <View style={styles.pillGroup}>
-                {[1, 2, 3, 5].map((count) => {
-                  const isCur = (playerSettings.maxRetryAttempts || 3) === count;
-                  return (
-                    <TouchableOpacity
-                      key={count}
-                      style={[styles.pillBtn, isCur && styles.pillBtnSelected]}
-                      onPress={() => handleUpdateSetting({ maxRetryAttempts: count })}
-                    >
-                      <Text style={[styles.pillBtnText, isCur && styles.pillBtnTextSelected]}>
-                        {count}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Buffering Behavior */}
-            <View style={styles.selectorRow}>
-              <View style={styles.toggleTextCol}>
-                <Text style={styles.settingsRowLabel}>Buffering Profile</Text>
-                <Text style={styles.toggleSubtitle}>Stream cache vs startup delay</Text>
-              </View>
-              <View style={styles.pillGroup}>
-                {[
-                  { id: BUFFER_PROFILE.LOW_LATENCY, label: 'Fast' },
-                  { id: BUFFER_PROFILE.NORMAL, label: 'Standard' },
-                  { id: BUFFER_PROFILE.STABLE, label: 'Stable' },
-                ].map((prof) => {
-                  const isCur = (playerSettings.bufferProfile || BUFFER_PROFILE.NORMAL) === prof.id;
-                  return (
-                    <TouchableOpacity
-                      key={prof.id}
-                      style={[styles.pillBtn, isCur && styles.pillBtnSelected]}
-                      onPress={() => handleUpdateSetting({ bufferProfile: prof.id })}
-                    >
-                      <Text style={[styles.pillBtnText, isCur && styles.pillBtnTextSelected]}>
-                        {prof.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleTextCol}>
-                <Text style={styles.settingsRowLabel}>Remember Player Selection</Text>
-                <Text style={styles.toggleSubtitle}>
-                  Retain selected player preference across app restarts
-                </Text>
-              </View>
-              <Switch
-                value={playerSettings.rememberPlayerPreference}
-                onValueChange={(val) => handleUpdateSetting({ rememberPlayerPreference: val })}
-                trackColor={{ false: '#262D3D', true: Colors.brand.primary }}
-                thumbColor={playerSettings.rememberPlayerPreference ? '#FFFFFF' : '#8A92A6'}
-              />
-            </View>
-
-            {/* Restore Defaults */}
-            <TouchableOpacity
-              style={styles.actionRow}
-              onPress={handleResetDefaults}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.actionRowLabel, { color: Colors.brand.primary }]}>
-                Restore Default Playback Settings
-              </Text>
-              <Text style={styles.actionRowChevron}>&gt;</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionRow}
-              onPress={() => setShowDiagnosticModal(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.actionRowLabel}>Native Player Diagnostics</Text>
-              <Text style={styles.actionRowChevron}>&gt;</Text>
-            </TouchableOpacity>
-          </SettingsSection>
-        </ScrollView>
-
-        {/* Column 3: Storage & Version Info */}
-        <ScrollView style={styles.settingsCol} showsVerticalScrollIndicator={false} contentContainerStyle={styles.colContent}>
-          <SettingsSection title="Data & Storage">
-            <TouchableOpacity style={styles.actionRow} onPress={handleClearCache} activeOpacity={0.8}>
-              <Text style={[styles.actionRowLabel, { color: Colors.status.error }]}>Clear Cache</Text>
-              <Text style={styles.actionRowChevron}>&gt;</Text>
-            </TouchableOpacity>
-          </SettingsSection>
-
-          <SettingsSection title="About">
-            <SettingsRow label="Application" value="FOX PLAYER" />
-            <SettingsRow label="Version" value={APP_VERSION} />
-            <SettingsRow label="Build" value="Production" />
-          </SettingsSection>
-        </ScrollView>
-      </View>
+      )}
 
       {/* PIN Modals */}
       {showPinModal && (
@@ -724,11 +749,40 @@ export default function SettingsScreen() {
         </Modal>
       )}
 
-      {/* Native Player Diagnostics Modal */}
-      <NativePlayerTestHarness
-        visible={showDiagnosticModal}
-        onClose={() => setShowDiagnosticModal(false)}
-      />
+      {/* Native Player Diagnostics Modal (ONLY shown when opened) */}
+      {showDiagnosticModal && (
+        <Modal
+          visible={true}
+          transparent
+          animationType="fade"
+          supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}
+          onRequestClose={() => setShowDiagnosticModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalBox, { maxWidth: 640, maxHeight: '90%' }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={styles.modalTitle}>Native Player Diagnostics</Text>
+                <TouchableOpacity
+                  onPress={() => setShowDiagnosticModal(false)}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700' }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <NativePlayerTestHarness autoStart={true} />
+              </ScrollView>
+              <TouchableOpacity
+                style={[styles.modalCancel, { marginTop: 12 }]}
+                onPress={() => setShowDiagnosticModal(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalCancelText}>Close Diagnostics</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {/* Subscription Details Modal */}
       <SubscriptionDetailsModal
@@ -1113,14 +1167,14 @@ const styles = StyleSheet.create({
   // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: 'rgba(0,0,0,0.85)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
   },
   modalBox: {
     width: '90%',
-    maxWidth: 380,
+    maxWidth: 420,
     backgroundColor: Colors.background.secondary,
     borderRadius: 14,
     padding: 14,
@@ -1146,8 +1200,8 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   modalCancel: {
-    flex: 1,
     paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Colors.border.default,
